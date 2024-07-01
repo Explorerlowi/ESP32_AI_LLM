@@ -1,7 +1,7 @@
 
 代码中需要填写自己的wifi账号密码、申请的token、自己的API Key和Secret Key（科大讯飞）
 
-版本介绍（在原项目的基础上）：
+版本介绍（在原项目https://github.com/MetaWu2077/Esp32_VoiceChat_LLMs的基础上）：
 1.添加了一块RGB_TFT屏幕，用于显示对话的文字
 2.添加了通过手机添加新wifi的功能：
 3.删掉了音乐播放（不会做），改善（恶）了onMessageCallback()和voicePlay()，大模型改用了最新的星火4.0
