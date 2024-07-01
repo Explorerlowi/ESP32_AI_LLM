@@ -11,4 +11,4 @@ https://serial.keysking.com
 ### 项目部署教程
 111
 ## 项目效果图
-/images/results.jpg
+![image](./images/results.jpg)
