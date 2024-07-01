@@ -1,0 +1,2 @@
+# ESP32_XunfeiSpark
+使用esp32接入讯飞星火大模型实现语音聊天
