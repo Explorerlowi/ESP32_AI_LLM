@@ -8,11 +8,11 @@
 使用vscode中的platformIO插件
 ### 硬件使用清单
 ESP-WROOM-32、INMP441全向麦克风、MAX98357 I2S音频放大器模块、喇叭、1.8寸（128x160）RGB_TFT屏幕、面包板（400孔85x55mm）两块、面包板跳线若干、数据线一条
-注意事项：其中ESP32需要安装相应的驱动程序
+- 注意事项：其中ESP32需要安装相应的驱动程序
 ### 串口监视器推荐
 https://serial.keysking.com
-设置参考：
-![image](./images/set.png)
+- 设置参考：
+![image0](./images/set.png)
 ### 项目部署教程
 111
 ## 项目成品图参考
