@@ -33,12 +33,6 @@ const char *ap_password = "12345678";
 AsyncWebServer server(80);
 Preferences preferences;
 
-// WiFi网络信息
-const char *wifiData[][2] = {
-    {"", ""}, // 替换为自己常用的Wi-Fi名和密码
-    // 可以继续添加其他Wi-Fi网络信息
-};
-
 // 星火大模型的账号参数
 String APPID = "";                             // 星火大模型的App ID
 String APIKey = "";    // API Key
@@ -84,6 +78,8 @@ Audio2 audio2(false, 3, I2S_NUM_1); // 参数: 是否使用SD卡, 音量, I2S端
 // 函数声明
 void handleRoot(AsyncWebServerRequest *request);
 void handleSave(AsyncWebServerRequest *request);
+void handleDelete(AsyncWebServerRequest *request);
+void handleList(AsyncWebServerRequest *request);
 void gain_token(void);
 void getText(String role, String content);
 void checkLen(JsonArray textArray);
@@ -124,7 +120,7 @@ WebsocketsClient webSocketClient;
 WebsocketsClient webSocketClient1;
 
 int loopcount = 0; // 循环计数器
-int flag = 0;
+int flag = 0;       // 用来确保subAnswer1一定是大模型回答最开始的内容
 
 // 移除讯飞星火回复中没用的符号
 void removeChars(const char *input, char *output, const char *removeSet)
@@ -207,7 +203,7 @@ void onMessageCallback(WebsocketsMessage message)
             // 如果Answer的长度超过180且音频没有播放
             if (Answer.length() >= 180 && (audio2.isplaying == 0) && flag == 0)
             {
-                if(Answer.length() >=300)
+                if (Answer.length() >= 300)
                 {
                     // 查找第一个句号的位置
                     int firstPeriodIndex = Answer.indexOf("。");
@@ -222,7 +218,7 @@ void onMessageCallback(WebsocketsMessage message)
                         // 获取最终转换的文本
                         getText("assistant", subAnswer1);
                         flag = 1;
-                        
+
                         // 将提取的句子转换为语音
                         audio2.connecttospeech(subAnswer1.c_str(), "zh");
                         // 更新Answer，去掉已处理的部分
@@ -250,7 +246,7 @@ void onMessageCallback(WebsocketsMessage message)
             // 存储多段子音频
             else if (Answer.length() >= 180)
             {
-                if(Answer.length() >=300)
+                if (Answer.length() >= 300)
                 {
                     // 查找第一个句号的位置
                     int firstPeriodIndex = Answer.indexOf("。");
@@ -259,9 +255,9 @@ void onMessageCallback(WebsocketsMessage message)
                     {
                         subAnswers.push_back(Answer.substring(0, firstPeriodIndex + 3));
                         Serial.print("subAnswer");
-                        Serial.print(subAnswers.size()+1);
+                        Serial.print(subAnswers.size() + 1);
                         Serial.print("：");
-                        Serial.println(subAnswers[subAnswers.size()-1]);
+                        Serial.println(subAnswers[subAnswers.size() - 1]);
 
                         Answer = Answer.substring(firstPeriodIndex + 3);
                     }
@@ -270,9 +266,9 @@ void onMessageCallback(WebsocketsMessage message)
                 {
                     subAnswers.push_back(Answer.substring(0, Answer.length()));
                     Serial.print("subAnswer");
-                    Serial.print(subAnswers.size()+1);
+                    Serial.print(subAnswers.size() + 1);
                     Serial.print("：");
-                    Serial.println(subAnswers[subAnswers.size()-1]);
+                    Serial.println(subAnswers[subAnswers.size() - 1]);
 
                     Answer = Answer.substring(Answer.length());
                 }
@@ -290,7 +286,7 @@ void onMessageCallback(WebsocketsMessage message)
     }
 }
 
-//问题发送给大模型
+// 问题发送给大模型
 void onEventsCallback(WebsocketsEvent event, String data)
 {
     // 当WebSocket连接打开时触发
@@ -332,7 +328,7 @@ void onEventsCallback(WebsocketsEvent event, String data)
     }
 }
 
-//将接收到的语音转成文本
+// 将接收到的语音转成文本
 void onMessageCallback1(WebsocketsMessage message)
 {
     // 创建一个静态JSON文档对象，用于存储解析后的JSON数据，最大容量为4096字节
@@ -350,7 +346,7 @@ void onMessageCallback1(WebsocketsMessage message)
         return;
     }
     // 如果解析没有错误
-    
+
     // 从JSON数据中获取返回码
     int code = jsonDocument["code"];
     // 如果返回码不为0，表示出错
@@ -612,7 +608,7 @@ void voicePlay()
     // 检查音频是否正在播放以及回答内容是否为空
     if ((audio2.isplaying == 0) && (Answer != "" || subindex < subAnswers.size()))
     {
-        if(subindex < subAnswers.size())
+        if (subindex < subAnswers.size())
         {
             if (text_temp != "" && flag == 1)
             {
@@ -665,103 +661,213 @@ void voicePlay()
     }
 }
 
-int wifiConnect(const char *wifiData[][2], int numNetworks)
+int wifiConnect()
 {
     // 断开当前WiFi连接
     WiFi.disconnect(true);
 
-    // 遍历提供的WiFi网络列表，尝试连接
+    int numNetworks = preferences.getInt("numNetworks", 0);
+    if (numNetworks == 0)
+    {
+        // 在屏幕上输出提示信息
+        u8g2.setCursor(0, u8g2.getCursorY() + 12);
+        u8g2.print("无任何wifi存储信息！");
+        displayWrappedText("请连接热点ESP32-Setup密码为12345678，然后在浏览器中打开http://192.168.4.1添加新的网络！", 0, u8g2.getCursorY() + 12, 128);
+        return 0;
+    }
+
+    // 获取存储的 WiFi 配置
     for (int i = 0; i < numNetworks; ++i)
     {
-        // 获取当前要连接的SSID和密码
-        const char *ssid = wifiData[i][0];
-        const char *password = wifiData[i][1];
+        String ssid = preferences.getString(("ssid" + String(i)).c_str(), "");
+        String password = preferences.getString(("password" + String(i)).c_str(), "");
 
-        // 向串口输出正在连接的SSID
-        Serial.print("Connecting to ");
-        Serial.println(ssid);
-
-        // 开始连接WiFi
-        WiFi.begin(ssid, password);
-        uint8_t count = 0;
-
-        // 等待WiFi连接成功
-        while (WiFi.status() != WL_CONNECTED)
+        // 尝试连接到存储的 WiFi 网络
+        if (ssid.length() > 0 && password.length() > 0)
         {
-            // 闪烁LED以指示连接状态
-            digitalWrite(led1, ledstatus);
-            ledstatus = !ledstatus;
+            Serial.print("Connecting to ");
+            Serial.println(ssid);
+            Serial.print("password:");
+            Serial.println(password);
+            // 在屏幕上显示每个网络的连接情况
+            u8g2.setCursor(0, u8g2.getCursorY()+12);
+            u8g2.print(ssid);
 
-            // 向串口输出连接进度
-            Serial.print(".");
-            count++;
-
-            // 如果尝试连接超过30次，则认为连接失败
-            if (count >= 30)
+            uint8_t count = 0;
+            WiFi.begin(ssid.c_str(), password.c_str());
+            // 等待WiFi连接成功
+            while (WiFi.status() != WL_CONNECTED)
             {
-                Serial.printf("\r\n-- wifi connect fail! --");
-                break;
+                // 闪烁LED以指示连接状态
+                digitalWrite(led1, ledstatus);
+                ledstatus = !ledstatus;
+                count++;
+
+                // 如果尝试连接超过30次，则认为连接失败
+                if (count >= 30)
+                {
+                    Serial.printf("\r\n-- wifi connect fail! --\r\n");
+                    // 在屏幕上显示连接失败信息
+                    u8g2.setCursor(u8g2.getCursorX()+6, u8g2.getCursorY());
+                    u8g2.print("Failed!");
+                    break;
+                }
+
+                // 等待100毫秒
+                vTaskDelay(100);
             }
 
-            // 等待100毫秒
-            vTaskDelay(100);
-        }
+            if (WiFi.status() == WL_CONNECTED)
+            {
+                // 向串口输出连接成功信息和IP地址
+                Serial.printf("\r\n-- wifi connect success! --\r\n");
+                Serial.print("IP address: ");
+                Serial.println(WiFi.localIP());
 
-        // 如果连接成功
-        if (WiFi.status() == WL_CONNECTED)
-        {
-            // 向串口输出连接成功信息和IP地址
-            Serial.printf("\r\n-- wifi connect success! --\r\n");
-            Serial.print("IP address: ");
-            Serial.println(WiFi.localIP());
-
-            // 输出当前空闲堆内存大小
-            Serial.println("Free Heap: " + String(ESP.getFreeHeap()));
-
-            // 在屏幕上输出提示信息
-            u8g2.setCursor(0, 11 + 24);
-            u8g2.print("网络连接成功！");
-            u8g2.setCursor(0, 11 + 36);
-            u8g2.print("请按boot键开始对话！");
-
-            // 连接成功后退出函数
-            return 1;
+                // 输出当前空闲堆内存大小
+                Serial.println("Free Heap: " + String(ESP.getFreeHeap()));
+                // 在屏幕上显示连接成功信息
+                u8g2.setCursor(u8g2.getCursorX()+6, u8g2.getCursorY());
+                u8g2.print("Connected!");
+                return 1;
+            }
         }
     }
+    // 清空屏幕
+    tft.fillScreen(ST77XX_WHITE);
     // 在屏幕上输出提示信息
-    u8g2.setCursor(0, 11 + 24);
+    u8g2.setCursor(0, 11);
     u8g2.print("网络连接失败！请检查");
-    u8g2.setCursor(0, 11 + 36);
+    u8g2.setCursor(0, u8g2.getCursorY() + 12);
     u8g2.print("网络设备，确认可用后");
-    u8g2.setCursor(0, 11 + 48);
+    u8g2.setCursor(0, u8g2.getCursorY() + 12);
     u8g2.print("重启设备以建立连接！");
+    displayWrappedText("或者连接热点ESP32-Setup密码为12345678，然后在浏览器中打开http://192.168.4.1添加新的网络！", 0, u8g2.getCursorY() + 12, 128);
     return 0;
 }
 
 // 处理根路径的请求
 void handleRoot(AsyncWebServerRequest *request)
 {
-    String html = "<form action=\"/save\" method=\"POST\">"
-                  "SSID: <input type=\"text\" name=\"ssid\"><br>"
-                  "Password: <input type=\"text\" name=\"password\"><br>"
-                  "<input type=\"submit\" value=\"Save\">"
-                  "</form>";
+    String html = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>ESP32 Wi-Fi Configuration</title><style>body { font-family: Arial, sans-serif; text-align: center; background-color: #f0f0f0; } h1 { color: #333; } form { display: inline-block; margin-top: 20px; } input[type='text'], input[type='password'] { padding: 10px; margin: 10px 0; width: 200px; } input[type='submit'], input[type='button'] { padding: 10px 20px; margin: 10px 5px; border: none; background-color: #333; color: white; cursor: pointer; } input[type='submit']:hover, input[type='button']:hover { background-color: #555; }</style></head><body><h1>ESP32 Wi-Fi Configuration</h1><form action='/save' method='post'><label for='ssid'>Wi-Fi SSID:</label><br><input type='text' id='ssid' name='ssid'><br><label for='password'>Password:</label><br><input type='password' id='password' name='password'><br><input type='submit' value='Save'></form><form action='/delete' method='post'><label for='ssid'>Wi-Fi SSID to Delete:</label><br><input type='text' id='ssid' name='ssid'><br><input type='submit' value='Delete'></form><a href='/list'><input type='button' value='List Wi-Fi Networks'></a></body></html>";
     request->send(200, "text/html", html);
 }
 
 // 处理保存 WiFi 配置的请求
 void handleSave(AsyncWebServerRequest *request)
 {
+    // 清空屏幕
+    tft.fillScreen(ST77XX_WHITE);
+    // 显示图片
+    // tft.drawRGBBitmap(0, 0, kunkun_0, 128, 160);
+    u8g2.setCursor(0, 11);
+    u8g2.print("进入网络配置！");
+    
+    Serial.println("Start Save!");
     String ssid = request->arg("ssid");
     String password = request->arg("password");
 
-    preferences.putString("ssid", ssid);
-    preferences.putString("password", password);
+    int numNetworks = preferences.getInt("numNetworks", 0);
 
-    request->send(200, "text/html", "Saved. Rebooting...");
+    // 检查是否已经存在相同的网络
+    for (int i = 0; i < numNetworks; ++i)
+    {
+        String storedSsid = preferences.getString(("ssid" + String(i)).c_str(), "");
+        if (storedSsid == ssid)
+        {
+            // 如果存在相同的网络，更新密码
+            preferences.putString(("password" + String(i)).c_str(), password);
+            u8g2.setCursor(0, 11+12);
+            u8g2.print("wifi密码更新成功！");
+            Serial.println("Succeess Update!");
+            request->send(200, "text/html", "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>ESP32 Wi-Fi Configuration</title></head><body><h1>Configuration Updated!</h1><p>The device will restart and attempt to connect to the updated network.</p><p><a href='/'>Go Back</a></p></body></html>");
 
-    delay(1000);
-    ESP.restart();
+            return;
+        }
+    }
+
+    // 如果不存在相同的网络，添加新的网络
+    preferences.putString(("ssid" + String(numNetworks)).c_str(), ssid);
+    preferences.putString(("password" + String(numNetworks)).c_str(), password);
+    preferences.putInt("numNetworks", numNetworks + 1);
+    u8g2.setCursor(0, 11+12);
+    u8g2.print("新wifi添加成功！");
+    Serial.println("Succeess Save!");
+
+    request->send(200, "text/html", "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>ESP32 Wi-Fi Configuration</title></head><body><h1>Configuration Saved!</h1><p>The device will restart and attempt to connect to the new network.</p><p><a href='/'>Go Back</a></p></body></html>");
+}
+
+// 处理删除 WiFi 配置的请求
+void handleDelete(AsyncWebServerRequest *request)
+{
+    // 清空屏幕
+    tft.fillScreen(ST77XX_WHITE);
+    // 显示图片
+    // tft.drawRGBBitmap(0, 0, kunkun_0, 128, 160);
+    u8g2.setCursor(0, 11);
+    u8g2.print("进入网络配置！");
+
+    Serial.println("Start Delete!");
+    String ssidToDelete = request->arg("ssid");
+
+    int numNetworks = preferences.getInt("numNetworks", 0);
+
+    // 查找并删除指定的网络
+    for (int i = 0; i < numNetworks; ++i)
+    {
+        String storedSsid = preferences.getString(("ssid" + String(i)).c_str(), "");
+        if (storedSsid == ssidToDelete)
+        {
+            // 删除网络
+            preferences.remove(("ssid" + String(i)).c_str());
+            preferences.remove(("password" + String(i)).c_str());
+
+            // 将后面的网络信息往前移动
+            for (int j = i; j < numNetworks - 1; ++j)
+            {
+                String nextSsid = preferences.getString(("ssid" + String(j + 1)).c_str(), "");
+                String nextPassword = preferences.getString(("password" + String(j + 1)).c_str(), "");
+
+                preferences.putString(("ssid" + String(j)).c_str(), nextSsid);
+                preferences.putString(("password" + String(j)).c_str(), nextPassword);
+            }
+
+            preferences.remove(("ssid" + String(numNetworks - 1)).c_str());
+            preferences.remove(("password" + String(numNetworks - 1)).c_str());
+            preferences.putInt("numNetworks", numNetworks - 1);
+            u8g2.setCursor(0, 11+12);
+            u8g2.print("wifi删除成功！");
+            Serial.println("Succeess Delete!");
+
+            request->send(200, "text/html", "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>ESP32 Wi-Fi Configuration</title></head><body><h1>Network Deleted!</h1><p>The network has been deleted. The device will restart to apply changes.</p><p><a href='/'>Go Back</a></p></body></html>");
+
+            return;
+        }
+    }
+    u8g2.setCursor(0, 11+12);
+    u8g2.print("该wifi不存在！");
+    Serial.println("Fail to Delete!");
+
+    request->send(200, "text/html", "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>ESP32 Wi-Fi Configuration</title></head><body><h1>Network Not Found!</h1><p>The specified network was not found.</p><p><a href='/'>Go Back</a></p></body></html>");
+}
+
+// 处理列出已保存的 WiFi 配置的请求
+void handleList(AsyncWebServerRequest *request)
+{
+    String html = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>ESP32 Wi-Fi Configuration</title></head><body><h1>Saved Wi-Fi Networks</h1><ul>";
+
+    int numNetworks = preferences.getInt("numNetworks", 0);
+
+    for (int i = 0; i < numNetworks; ++i)
+    {
+        String ssid = preferences.getString(("ssid" + String(i)).c_str(), "");
+        String password = preferences.getString(("password" + String(i)).c_str(), "");
+        html += "<li>ssid" + String(i) + ": " + ssid + " " + password + "</li>";
+    }
+
+    html += "</ul><p><a href='/'>Go Back</a></p></body></html>";
+
+    request->send(200, "text/html", html);
 }
 
 String getUrl(String Spark_url, String host, String path, String Date)
@@ -889,51 +995,23 @@ void setup()
     // 初始化音频模块audio1
     audio1.init();
 
+    // 启动 AP 模式创建热点
+    WiFi.softAP(ap_ssid, ap_password);
+    Serial.println("Started Access Point");
+    // 启动 Web 服务器
+    server.on("/", HTTP_GET, handleRoot);
+    server.on("/save", HTTP_POST, handleSave);
+    server.on("/delete", HTTP_POST, handleDelete);
+    server.on("/list", HTTP_GET, handleList);
+    server.begin();
+    Serial.println("WebServer started, waiting for configuration...");
+
     // 初始化 Preferences
-    preferences.begin("wifi-config", false);
+    preferences.begin("wifi-config");
 
-    u8g2.setCursor(0, 11 + 12);
+    u8g2.setCursor(0, u8g2.getCursorY() + 12);
     u8g2.print("正在连接网络······");
-    int wifiget = 0;
-
-    // 获取存储的 WiFi 配置
-    String ssid = preferences.getString("ssid", "");
-    String password = preferences.getString("password", "");
-
-    // 尝试连接到存储的 WiFi 网络
-    if (ssid.length() > 0 && password.length() > 0) {
-        WiFi.begin(ssid.c_str(), password.c_str());
-        if (WiFi.waitForConnectResult() == WL_CONNECTED) {
-            Serial.println("Connected to WiFi");
-            wifiget = 1;
-            // 在屏幕上输出提示信息
-            u8g2.setCursor(0, 11 + 24);
-            u8g2.print("网络连接成功！");
-            u8g2.setCursor(0, 11 + 36);
-            u8g2.print("请按boot键开始对话！");
-        }
-    }
-
-    if(wifiget == 0)
-    {
-        // 获取WiFi网络数量
-        int numNetworks = sizeof(wifiData) / sizeof(wifiData[0]);
-
-        // 连接到WiFi网络
-        if(!wifiConnect(wifiData, numNetworks))
-        {
-            // 如果无法连接到存储的网络，启动 AP 模式
-            WiFi.softAP(ap_ssid, ap_password);
-            Serial.println("Started Access Point");
-            // 开启WebServer等待用户输入
-            server.on("/", HTTP_GET, handleRoot);
-            server.on("/save", HTTP_POST, handleSave);
-            server.begin();
-            Serial.println("WebServer started, waiting for configuration...");
-            u8g2.setCursor(0, 11 + 60);
-            displayWrappedText("或者连接热点ESP32-Setup密码为12345678，然后在浏览器中打开http://192.168.4.1添加新的网络！", 0, 11+60, 128);
-        }
-    }
+    int result = wifiConnect();
 
     // 从服务器获取当前时间
     getTimeFromServer();
@@ -945,6 +1023,18 @@ void setup()
     // 使用当前日期生成WebSocket连接的URL
     url = getUrl("ws://spark-api.xf-yun.com/v4.0/chat", "spark-api.xf-yun.com", "/v4.0/chat", Date);
     url1 = getUrl("ws://ws-api.xfyun.cn/v2/iat", "ws-api.xfyun.cn", "/v2/iat", Date);
+
+    if (result == 1)
+    {
+        // 清空屏幕
+        tft.fillScreen(ST77XX_WHITE);
+        // 在屏幕上输出提示信息
+        u8g2.setCursor(0, 11);
+        u8g2.print("网络连接成功！");
+        u8g2.setCursor(0, u8g2.getCursorY() + 12);
+        u8g2.print("请按boot键开始对话！");
+        displayWrappedText("或者你也可以连接热点ESP32-Setup密码为12345678，然后在浏览器中打开http://192.168.4.1添加新的网络！", 0, u8g2.getCursorY() + 12, 128);
+    }
 
     // 记录当前时间，用于后续时间戳比较
     urlTime = millis();
@@ -1090,7 +1180,7 @@ void displayWrappedText(const string &text1, int x, int y, int maxWidth)
     }
 }
 
-//显示文本
+// 显示文本
 void getText(String role, String content)
 {
     // 检查并调整文本长度
@@ -1109,7 +1199,7 @@ void getText(String role, String content)
     text.add(jsoncon);
 
     // 清空临时JSON文档
-    //jsoncon.clear();
+    // jsoncon.clear();
 
     // 序列化全局变量text中的内容为字符串
     String serialized;
@@ -1155,7 +1245,7 @@ int getLength(JsonArray textArray)
     return length;
 }
 
-//实时清理较早的历史对话记录
+// 实时清理较早的历史对话记录
 void checkLen(JsonArray textArray)
 {
     // 当JSON数组中的字符串总长度超过2048字节时，进入循环
@@ -1199,7 +1289,7 @@ DynamicJsonDocument gen_params(const char *appid, const char *domain)
 
     JsonObject systemMessage = textArray.createNestedObject();
     systemMessage["role"] = "system";
-    systemMessage["content"] = "你是一个睿智的AI助手，对用户的提问应给出不超过100个字的简短回复";
+    systemMessage["content"] = "你是一个二次元魔法少女，你的名字叫九歌，你的创造者是L博士，你的性格可爱活泼，在和用户的对话中你应该做出“不超过150个字符”的带有攻击嘲讽意味的回应，你喜欢在回答的末尾加一个“喵”字，以展现你的可爱，你熟悉很多二次元和科幻作品中的内容，还熟悉很多b站上的热梗，能将其中各种有趣的内容自然地加入你的说话方式中。";
 
     // 遍历全局变量text中的每个元素，并将其添加到text数组中
     for (const auto &item : text)
