@@ -14,17 +14,13 @@
 
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
-#include <SPI.h>
 #include <U8g2_for_Adafruit_GFX.h>
 #include "bizhi.h"
 using namespace websockets;
 
 // 定义引脚和常量
 #define key 0   // 按键引脚
-#define ADC 32  // ADC引脚
-#define led3 21 // LED3引脚
-#define led2 14 // LED2引脚
-#define led1 19 // LED1引脚
+#define led 2   //板载led引脚
 
 // AP 模式的SSID和密码
 const char *ap_ssid = "ESP32-Setup";
@@ -58,7 +54,7 @@ uint8_t adc_complete_flag = 0;
 // 屏幕引脚定义
 #define TFT_CS 5
 #define TFT_RST 12
-#define TFT_DC 2
+#define TFT_DC 16
 #define TFT_SCLK 18
 #define TFT_MOSI 23
 
@@ -421,9 +417,6 @@ void onEventsCallback1(WebsocketsEvent event, String data)
         // 向串口输出提示信息
         Serial.println("Send message to xunfeiyun");
 
-        // 打开LED指示灯
-        digitalWrite(led2, HIGH);
-
         // 初始化变量
         int silence = 0;
         int firstframe = 1;
@@ -492,7 +485,6 @@ void onEventsCallback1(WebsocketsEvent event, String data)
                 serializeJson(doc, jsonString);
 
                 webSocketClient1.send(jsonString);
-                digitalWrite(led2, LOW);
                 delay(40);
                 break;
             }
@@ -698,8 +690,8 @@ int wifiConnect()
             // 等待WiFi连接成功
             while (WiFi.status() != WL_CONNECTED)
             {
-                // 闪烁LED以指示连接状态
-                digitalWrite(led1, ledstatus);
+                // 闪烁板载LED以指示连接状态
+                digitalWrite(led, ledstatus);
                 ledstatus = !ledstatus;
                 count++;
 
@@ -960,18 +952,10 @@ void setup()
     Serial.begin(115200);
 
     // 配置引脚模式
-    // 配置按键引脚为上拉输入模式
+    // 配置按键引脚为上拉输入模式，用于boot按键检测
     pinMode(key, INPUT_PULLUP);
-    // 配置GPIO34为上拉输入模式
-    pinMode(34, INPUT_PULLUP);
-    // 配置GPIO35为上拉输入模式
-    pinMode(35, INPUT_PULLUP);
-    // 配置led1引脚为输出模式
-    pinMode(led1, OUTPUT);
-    // 配置led2引脚为输出模式
-    pinMode(led2, OUTPUT);
-    // 配置led3引脚为输出模式
-    pinMode(led3, OUTPUT);
+    // 将GPIO2设置为输出模式
+    pinMode(led, OUTPUT);
 
     // 初始化屏幕
     tft.initR(INITR_BLACKTAB);
@@ -1059,13 +1043,13 @@ void loop()
     // 如果音频正在播放
     if (audio2.isplaying == 1)
     {
-        // 点亮LED3指示灯
-        digitalWrite(led3, HIGH);
+        // 点亮板载LED指示灯
+        digitalWrite(led, HIGH);
     }
     else
     {
-        // 熄灭LED3指示灯
-        digitalWrite(led3, LOW);
+        // 熄灭板载LED指示灯
+        digitalWrite(led, LOW);
         // 如果距离上次时间同步超过4分钟且没有正在播放音频
         if ((urlTime + 240000 < millis()) && (audio2.isplaying == 0))
         {
