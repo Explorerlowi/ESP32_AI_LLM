@@ -16,14 +16,15 @@ ESP-WROOM-32、INMP441全向麦克风、MAX98357 I2S音频放大器模块、喇�
 - SD -> GPIO22
 - WS -> GPIO15
 - SCK -> GPIO4
-音频放大模块：  
 
+音频放大模块：
 - Vin -> VIN
 - GND -> GND
 - LRC -> GPIO25
 - BCLK -> GPIO26
 - DIN -> GPIO27
-1.8寸OLED屏幕：  
+
+1.8寸OLED屏幕：
 - VDD -> VIN
 - GND -> GND
 - SCL -> GPIO18
