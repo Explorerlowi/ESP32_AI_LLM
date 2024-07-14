@@ -64,7 +64,10 @@ U8G2_FOR_ADAFRUIT_GFX u8g2;
 
 // 创建音频对象
 Audio1 audio1;
-Audio2 audio2(false, 3, I2S_NUM_1); // 参数: 是否使用SD卡, 音量, I2S端口号
+Audio2 audio2(false, 3, I2S_NUM_1); 
+// 参数: 是否使用内部DAC（数模转换器）如果设置为true，将使用ESP32的内部DAC进行音频输出。否则，将使用外部I2S设备。
+// 指定启用的音频通道。可以设置为1（只启用左声道）或2（只启用右声道）或3（启用左右声道）
+// 指定使用哪个I2S端口。ESP32有两个I2S端口，I2S_NUM_0和I2S_NUM_1。可以根据需要选择不同的I2S端口。
 
 // 定义I2S引脚
 #define I2S_DOUT 27 // DIN引脚
@@ -108,7 +111,7 @@ String text_temp = "";
 const char *appId1 = ""; // 替换为自己的星火大模型参数
 const char *domain1 = "4.0Ultra";
 const char *websockets_server = "ws://spark-api.xf-yun.com/v4.0/chat";
-const char *websockets_server1 = "ws://ws-api.xfyun.cn/v2/iat";
+const char *websockets_server1 = "ws://iat-api.xfyun.cn/v2/iat";
 using namespace websockets; // 使用WebSocket命名空间
 
 // 创建WebSocket客户端对象
@@ -117,6 +120,7 @@ WebsocketsClient webSocketClient1;
 
 int loopcount = 0; // 循环计数器
 int flag = 0;       // 用来确保subAnswer1一定是大模型回答最开始的内容
+int conflag = 0;
 
 // 移除讯飞星火回复中没用的符号
 void removeChars(const char *input, char *output, const char *removeSet)
@@ -238,6 +242,7 @@ void onMessageCallback(WebsocketsMessage message)
                     // 设置播放开始标志
                     startPlay = true;
                 }
+                conflag = 1;
             }
             // 存储多段子音频
             else if (Answer.length() >= 180)
@@ -277,6 +282,8 @@ void onMessageCallback(WebsocketsMessage message)
                 getText("assistant", Answer);
                 // 播放最终转换的文本
                 audio2.connecttospeech(Answer.c_str(), "zh");
+                Answer = "";
+                conflag = 1;
             }
         }
     }
@@ -364,6 +371,11 @@ void onMessageCallback1(WebsocketsMessage message)
         // 获取JSON数据中的结果部分，并提取文本内容
         JsonArray ws = jsonDocument["data"]["result"]["ws"].as<JsonArray>();
 
+        if (jsonDocument["data"]["status"] != 2)
+        {
+            askquestion = "";
+        }
+
         for (JsonVariant i : ws)
         {
             for (JsonVariant w : i["cw"].as<JsonArray>())
@@ -385,8 +397,21 @@ void onMessageCallback1(WebsocketsMessage message)
             // 如果问句为空，播放错误提示语音
             if (askquestion == "")
             {
-                askquestion = "sorry, i can't hear you";
+                // 清空屏幕
+                tft.fillScreen(ST77XX_WHITE);
+                // 显示图片
+                // tft.drawRGBBitmap(0, 0, liuying1_0, 128, 160);
+                tft.setCursor(0, 0);
+                // 打印角色
+                tft.print("assistant");
+                tft.print(": ");
+
+                askquestion = "对不起，我没有听清，可以再说一遍吗？";
+                // 打印内容
+                displayWrappedText(askquestion.c_str(), tft.getCursorX(), tft.getCursorY() + 11, 128);
                 audio2.connecttospeech(askquestion.c_str(), "zh");
+                askquestion = "";
+                conflag = 1;
             }
             else
             {
@@ -397,6 +422,7 @@ void onMessageCallback1(WebsocketsMessage message)
                 tft.setCursor(0, 0);
                 // 处理一般的问答请求
                 getText("user", askquestion);
+                askquestion = "";
                 Serial.print("text:");
                 Serial.println(text);
                 Answer = "";
@@ -423,6 +449,7 @@ void onEventsCallback1(WebsocketsEvent event, String data)
         int j = 0;
         int voicebegin = 0;
         int voice = 0;
+        int null_voice = 0;
 
         // 创建一个JSON文档对象
         DynamicJsonDocument doc(2500);
@@ -450,9 +477,21 @@ void onEventsCallback1(WebsocketsEvent event, String data)
             float rms = calculateRMS((uint8_t *)audio1.wavData[0], 1280);
             printf("%d %f\n", 0, rms);
 
+            if(null_voice >= 80)
+            {
+                // 清空屏幕
+                tft.fillScreen(ST77XX_WHITE);
+                // 显示图片
+                tft.drawRGBBitmap(0, 0, kunkun_0, 128, 160);
+                displayWrappedText("语音输入超时，本轮对话结束！请按boot键开启新一轮对话。", 0, 11, 128);
+                webSocketClient1.close();
+                return;
+            }
+
             // 判断是否为噪音
             if (rms < noise)
             {
+                null_voice++;
                 if (voicebegin == 1)
                 {
                     silence++;
@@ -505,7 +544,10 @@ void onEventsCallback1(WebsocketsEvent event, String data)
                 business["domain"] = "iat";
                 business["language"] = "zh_cn";
                 business["accent"] = "mandarin";
-                business["vinfo"] = 1;
+                // 不使用动态修正
+                // business["vinfo"] = 1;
+                // 使用动态修正
+                business["dwa"] = "wpgs";
                 business["vad_eos"] = 1000;
 
                 String jsonString;
@@ -643,6 +685,7 @@ void voicePlay()
             }
             audio2.connecttospeech(Answer.c_str(), "zh");
             Answer = "";
+            conflag = 1;
         }
         // 设置开始播放标志
         startPlay = true;
@@ -772,7 +815,7 @@ void handleSave(AsyncWebServerRequest *request)
             u8g2.setCursor(0, 11+12);
             u8g2.print("wifi密码更新成功！");
             Serial.println("Succeess Update!");
-            request->send(200, "text/html", "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>ESP32 Wi-Fi Configuration</title></head><body><h1>Configuration Updated!</h1><p>The device will restart and attempt to connect to the updated network.</p><p><a href='/'>Go Back</a></p></body></html>");
+            request->send(200, "text/html", "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>ESP32 Wi-Fi Configuration</title></head><body><h1>Configuration Updated!</h1><p>Network password updated successfully.</p><p><a href='/'>Go Back</a></p></body></html>");
 
             return;
         }
@@ -786,7 +829,7 @@ void handleSave(AsyncWebServerRequest *request)
     u8g2.print("新wifi添加成功！");
     Serial.println("Succeess Save!");
 
-    request->send(200, "text/html", "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>ESP32 Wi-Fi Configuration</title></head><body><h1>Configuration Saved!</h1><p>The device will restart and attempt to connect to the new network.</p><p><a href='/'>Go Back</a></p></body></html>");
+    request->send(200, "text/html", "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>ESP32 Wi-Fi Configuration</title></head><body><h1>Configuration Saved!</h1><p>Network information added successfully.</p><p><a href='/'>Go Back</a></p></body></html>");
 }
 
 // 处理删除 WiFi 配置的请求
@@ -831,7 +874,7 @@ void handleDelete(AsyncWebServerRequest *request)
             u8g2.print("wifi删除成功！");
             Serial.println("Succeess Delete!");
 
-            request->send(200, "text/html", "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>ESP32 Wi-Fi Configuration</title></head><body><h1>Network Deleted!</h1><p>The network has been deleted. The device will restart to apply changes.</p><p><a href='/'>Go Back</a></p></body></html>");
+            request->send(200, "text/html", "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>ESP32 Wi-Fi Configuration</title></head><body><h1>Network Deleted!</h1><p>The network has been deleted.</p><p><a href='/'>Go Back</a></p></body></html>");
 
             return;
         }
@@ -1006,7 +1049,7 @@ void setup()
 
     // 使用当前日期生成WebSocket连接的URL
     url = getUrl("ws://spark-api.xf-yun.com/v4.0/chat", "spark-api.xf-yun.com", "/v4.0/chat", Date);
-    url1 = getUrl("ws://ws-api.xfyun.cn/v2/iat", "ws-api.xfyun.cn", "/v2/iat", Date);
+    url1 = getUrl("ws://iat-api.xfyun.cn/v2/iat", "iat-api.xfyun.cn", "/v2/iat", Date);
 
     if (result == 1)
     {
@@ -1059,13 +1102,14 @@ void loop()
             getTimeFromServer();
             // 更新WebSocket连接的URL
             url = getUrl("ws://spark-api.xf-yun.com/v4.0/chat", "spark-api.xf-yun.com", "/v4.0/chat", Date);
-            url1 = getUrl("ws://ws-api.xfyun.cn/v2/iat", "ws-api.xfyun.cn", "/v2/iat", Date);
+            url1 = getUrl("ws://iat-api.xfyun.cn/v2/iat", "iat-api.xfyun.cn", "/v2/iat", Date);
         }
     }
 
     // 检测按键是否按下
     if (digitalRead(key) == 0)
     {
+        conflag = 0;
         Serial.print("loopcount：");
         Serial.println(loopcount);
         loopcount++;
@@ -1092,9 +1136,47 @@ void loop()
             getTimeFromServer();
             // 更新WebSocket连接的URL
             url = getUrl("ws://spark-api.xf-yun.com/v4.0/chat", "spark-api.xf-yun.com", "/v4.0/chat", Date);
-            url1 = getUrl("ws://ws-api.xfyun.cn/v2/iat", "ws-api.xfyun.cn", "/v2/iat", Date);
+            url1 = getUrl("ws://iat-api.xfyun.cn/v2/iat", "iat-api.xfyun.cn", "/v2/iat", Date);
         }
-        askquestion = "";
+
+        // 连接到WebSocket服务器1
+        ConnServer1();
+
+        adc_complete_flag = 0;
+    }
+    
+    // 检测按键是否按下
+    if (audio2.isplaying == 0 && Answer == "" && subindex == subAnswers.size() && conflag == 1)
+    {
+        conflag = 0;
+        Serial.print("loopcount：");
+        Serial.println(loopcount);
+        loopcount++;
+        // 停止播放音频
+        audio2.isplaying = 0;
+        startPlay = false;
+        isReady = false;
+        Answer = "";
+        flag = 0;
+        subindex = 0;
+        subAnswers.clear();
+        // answerTemp = "";
+        // text.clear();
+        Serial.printf("Start recognition\r\n\r\n");
+
+        adc_start_flag = 1;
+
+        // 如果距离上次时间同步超过4分钟
+        if (urlTime + 240000 < millis()) // 超过4分钟，重新做一次鉴权
+        {
+            // 更新时间戳
+            urlTime = millis();
+            // 从服务器获取当前时间
+            getTimeFromServer();
+            // 更新WebSocket连接的URL
+            url = getUrl("ws://spark-api.xf-yun.com/v4.0/chat", "spark-api.xf-yun.com", "/v4.0/chat", Date);
+            url1 = getUrl("ws://iat-api.xfyun.cn/v2/iat", "iat-api.xfyun.cn", "/v2/iat", Date);
+        }
 
         // 连接到WebSocket服务器1
         ConnServer1();
@@ -1273,7 +1355,7 @@ DynamicJsonDocument gen_params(const char *appid, const char *domain)
 
     JsonObject systemMessage = textArray.createNestedObject();
     systemMessage["role"] = "system";
-    systemMessage["content"] = "你是一个二次元魔法少女，你的名字叫九歌，你的创造者是L博士，你的性格可爱活泼，在和用户的对话中你应该做出“不超过150个字符”的带有攻击嘲讽意味的回应，你喜欢在回答的末尾加一个“喵”字，以展现你的可爱，你熟悉很多二次元和科幻作品中的内容，还熟悉很多b站上的热梗，能将其中各种有趣的内容自然地加入你的说话方式中。";
+    systemMessage["content"] = "你是一个学识渊博、可爱活泼的AI助手，你的名字是小灵，在和用户的对话中你的回答尽量不能超过150个字。";
 
     // 遍历全局变量text中的每个元素，并将其添加到text数组中
     for (const auto &item : text)
