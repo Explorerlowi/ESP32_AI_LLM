@@ -60,10 +60,11 @@ ESP32连接网络后，按下板载的boot键即可开始说话。项目使用IN
 网络连接通过读取ESP32 flash的NVS中存储的Wi-Fi信息实现。设备启动后开始联网时，板载LED会闪烁，屏幕显示相应的连接状态信息。ESP32设置为AP模式，创建临时网络热点ESP32-Setup（初始密码为12345678）。手机或电脑连接此网络后，浏览器访问http://192.168.4.1，出现配置网页界面：
 ![image1](./images/wifiset.jpg)
 通过该网页界面，即可进行网络的配置。
+
 配置界面包含以下功能：
-·输入目标Wi-Fi的SSID和密码后，点击Save按钮提交。如果Wi-Fi不存在，则添加到ESP32 flash的NVS中；如果存在，则修改密码。操作完成后，屏幕显示信息。
-·输入目标Wi-Fi的SSID后，按下Delete按钮，从ESP32 flash的NVS中删除Wi-Fi信息。操作完成后，屏幕显示信息。
-·点击List Wi-Fi Networks按钮，查看NVS中已存储的所有Wi-Fi信息。
+- 输入目标Wi-Fi的SSID和密码后，点击Save按钮提交。如果Wi-Fi不存在，则添加到ESP32 flash的NVS中；如果存在，则修改密码。操作完成后，屏幕显示信息。
+- 输入目标Wi-Fi的SSID后，按下Delete按钮，从ESP32 flash的NVS中删除Wi-Fi信息。操作完成后，屏幕显示信息。
+- 点击List Wi-Fi Networks按钮，查看NVS中已存储的所有Wi-Fi信息。
 #### 屏幕显示功能
 使用1.8寸（128x160）RGB_TFT屏幕显示用户与大模型的对话信息、网络配置及连接状态等信息。
 ### 项目部署教程
