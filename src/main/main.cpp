@@ -42,9 +42,9 @@ AsyncWebServer server(80);
 Preferences preferences;
 
 // 星火大模型的账号参数
-String APPID = "29af04cd";                             // 星火大模型的App ID
-String APISecret = "MDFiMDg1ZmE5NTQ4ZTBjOGFlMDQ1YTZh"; // API Secret
-String APIKey = "0856739c9268b283331b40cbb980fa49";    // API Key
+String APPID = "";      // 星火大模型的App ID
+String APISecret = ""; // API Secret
+String APIKey = "";    // API Key
 
 // 星火大模型参数
 const char *appId1 = APPID.c_str();
