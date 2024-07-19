@@ -1,5 +1,6 @@
 #include "I2S.h"
 #define SAMPLE_RATE (8000)
+// 定义麦克风引脚
 #define PIN_I2S_BCLK 4
 #define PIN_I2S_LRC 15
 #define PIN_I2S_DIN 22

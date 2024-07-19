@@ -43,6 +43,7 @@ extern __attribute__((weak)) void audio_eof_speech(const char *);
 extern __attribute__((weak)) void audio_eof_stream(const char *);                                       // The webstream comes to an end
 extern __attribute__((weak)) void audio_process_extern(int16_t *buff, uint16_t len, bool *continueI2S); // record audiodata or send via BT
 extern __attribute__((weak)) void audio_process_i2s(uint32_t *sample, bool *continueI2S);               // record audiodata or send via BT
+extern __attribute__((weak)) void audio_log(uint8_t logLevel, const char* msg, const char* arg);        //新加的
 
 //----------------------------------------------------------------------------------------------------------------------
 
@@ -174,6 +175,8 @@ private:
 #define ESP_ARDUINO_VERSION_MINOR 0
 #define ESP_ARDUINO_VERSION_PATCH 0
 #endif
+    // 新加的
+    enum : int8_t { AUDIOLOG_PATH_IS_NULL = -1, AUDIOLOG_FILE_NOT_FOUND = -2, AUDIOLOG_OUT_OF_MEMORY = -3, AUDIOLOG_FILE_READ_ERR = -4, AUDIOLOG_ERR_UNKNOWN = -127 };
 
     void UTF8toASCII(char *str);
     bool latinToUTF8(char *buff, size_t bufflen);
@@ -197,6 +200,7 @@ private:
     int sendBytes(uint8_t *data, size_t len);
     void setDecoderItems();
     void compute_audioCurrentTime(int bd);
+    void printProcessLog(int r, const char* s = "");    // 新加的
     void printDecodeError(int r);
     void showID3Tag(const char *tag, const char *val);
     size_t readAudioHeader(uint32_t bytes);
@@ -632,6 +636,7 @@ private:
     uint32_t m_bytesNotDecoded = 0;          // pictures or something else that comes with the stream
     uint32_t m_PlayingStartTime = 0;         // Stores the milliseconds after the start of the audio
     int32_t m_resumeFilePos = -1;            // the return value from stopSong() can be entered here, (-1) is idle
+    int32_t m_fileStartPos = -1;             // may be set in connecttoFS()新加的
     uint16_t m_m3u8_targetDuration = 10;     //
     uint32_t m_stsz_numEntries = 0;          // num of entries inside stsz atom (uint32_t)
     uint32_t m_stsz_position = 0;            // pos of stsz atom within file
@@ -663,6 +668,7 @@ private:
     float m_corr = 1.0;             // correction factor for level adjustment
     size_t m_i2s_bytesWritten = 0;  // set in i2s_write() but not used
     size_t m_file_size = 0;         // size of the file
+    size_t m_fileSize = 0;          // size of the file新加的
     uint16_t m_filterFrequency[2];
     int8_t m_gain0 = 0; // cut or boost filters (EQ)
     int8_t m_gain1 = 0;

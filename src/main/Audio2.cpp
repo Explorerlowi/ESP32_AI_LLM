@@ -496,14 +496,14 @@ bool Audio2::connecttohost(const char *host, const char *user, const char *pwd)
     } // amend "http;//" if not found
     else
     {
-        strcpy(l_host, (host + idx));
+        strcpy(l_host, (host + idx));       // 存储了http://192.168.1.107/mp3/Good.mp3
     } // trim left if necessary
 
     char *h_host = NULL; // pointer of l_host without http:// or https://
     if (startsWith(l_host, "https"))
         h_host = strdup(l_host + 8);
     else
-        h_host = strdup(l_host + 7);
+        h_host = strdup(l_host + 7);    // 存储了192.168.1.107/mp3/Good.mp3
 
     // initializationsequence
     int16_t pos_slash;     // position of "/" in hostname
@@ -524,11 +524,11 @@ bool Audio2::connecttohost(const char *host, const char *user, const char *pwd)
     if (pos_slash > 1)
     {
         hostwoext = (char *)malloc(pos_slash + 1);
-        memcpy(hostwoext, h_host, pos_slash);
+        memcpy(hostwoext, h_host, pos_slash);       // 存储了192.168.1.107
         hostwoext[pos_slash] = '\0';
         uint16_t extLen = urlencode_expected_len(h_host + pos_slash);
         extension = (char *)malloc(extLen + 20);
-        memcpy(extension, h_host + pos_slash, extLen);
+        memcpy(extension, h_host + pos_slash, extLen);  // 存储了/mp3/Good.mp3
         urlencode(extension, extLen, true);
     }
     else
@@ -612,11 +612,16 @@ bool Audio2::connecttohost(const char *host, const char *user, const char *pwd)
     res = _client->connect(hostwoext, port, m_f_ssl ? m_timeout_ms_ssl : m_timeout_ms);
     if (res)
     {
+        Serial.println("连接成功！");
         uint32_t dt = millis() - t;
         strcpy(m_lastHost, l_host);
         AUDIO_INFO("%s has been established in %u ms, free Heap: %u bytes",
                    m_f_ssl ? "SSL" : "Connection", dt, ESP.getFreeHeap());
         m_f_running = true;
+    }
+    else
+    {
+        Serial.println("连接失败！");
     }
 
     m_expectedCodec = CODEC_NONE;
@@ -657,7 +662,7 @@ bool Audio2::connecttohost(const char *host, const char *user, const char *pwd)
                 audio_lasthost(host);
         }
         setDatamode(HTTP_RESPONSE_HEADER); // Handle header
-        m_streamType = ST_WEBSTREAM;
+        m_streamType = ST_WEBSTREAM;  // ST_WEBSTREAM;
     }
     else
     {
@@ -692,6 +697,8 @@ bool Audio2::connecttohost(const char *host, const char *user, const char *pwd)
         free(h_host);
         h_host = NULL;
     }
+    // 输出当前空闲堆内存大小
+    Serial.println("Free Heap: " + String(ESP.getFreeHeap()));
     xSemaphoreGiveRecursive(mutex_audio);
     return res;
 }
@@ -721,7 +728,7 @@ bool Audio2::httpPrint(const char *host)
     int16_t pos_slash;     // position of "/" in hostname
     int16_t pos_colon;     // position of ":" in hostname
     int16_t pos_ampersand; // position of "&" in hostname
-    uint16_t port = 80;    // port number
+    uint16_t port = 8080;    // port number
 
     // In the URL there may be an extension, like noisefm.ru:8000/play.m3u&t=.m3u
     pos_slash = indexOf(h_host, "/", 0);
@@ -773,7 +780,7 @@ bool Audio2::httpPrint(const char *host)
     if (m_f_ssl)
     {
         _client = static_cast<WiFiClient *>(&clientsecure);
-        if (port == 80)
+        if (port == 8080)
             port = 443;
     }
     else
@@ -881,8 +888,102 @@ void Audio2::UTF8toASCII(char *str)
     }
     str[j] = 0;
 }
-//---------------------------------------------------------------------------------------------------------------------
 
+void Audio2::printProcessLog(int r, const char* s) {
+    const char* e;
+    const char* f = "";
+    uint8_t logLevel;  // 1 Error, 2 Warn, 3 Info,
+    switch(r) {
+        case AUDIOLOG_PATH_IS_NULL: e = "The path ore file name is empty"; logLevel = 1; break;
+        case AUDIOLOG_OUT_OF_MEMORY: e = "Out of memory"; logLevel = 1; break;
+        case AUDIOLOG_FILE_NOT_FOUND: e = "File doesn't exist: "; logLevel = 1; f = s; break;
+        case AUDIOLOG_FILE_READ_ERR: e = "Failed to open file for reading"; logLevel = 1; break;
+
+        default: e = "UNKNOWN EVENT"; logLevel = 3; break;
+    }
+    if(audio_log){
+        audio_log(logLevel, e, f);
+    }
+    else {
+        if     (logLevel == 1) {AUDIO_INFO("ERROR: %s%s", e, f);}
+        else if(logLevel == 2) {AUDIO_INFO("WARNING: %s%s", e, f);}
+        else                   {AUDIO_INFO("INFO: %s%s", e, f);}
+    }
+}
+//---------------------------------------------------------------------------------------------------------------------
+bool Audio2::connecttoFS(fs::FS& fs, const char* path, int32_t fileStartPos) {
+
+    if(!path) { // guard
+        printProcessLog(AUDIOLOG_PATH_IS_NULL);
+        return false;
+    }
+
+    xSemaphoreTakeRecursive(mutex_audio, portMAX_DELAY); // #3
+
+    m_fileStartPos = fileStartPos;
+    setDefaults(); // free buffers an set defaults
+
+    char *audioPath = (char *) __malloc_heap_psram(strlen(path) + 2);
+    if(!audioPath){
+        printProcessLog(AUDIOLOG_OUT_OF_MEMORY);
+        xSemaphoreGiveRecursive(mutex_audio);
+        return false;
+    }
+    if(path[0] == '/'){strcpy(audioPath, path);}
+    else {audioPath[0] = '/'; strcpy(audioPath + 1, path);}
+
+    if(!fs.exists(audioPath)) {
+        UTF8toASCII(audioPath);
+        if(!fs.exists(audioPath)){
+            printProcessLog(AUDIOLOG_FILE_NOT_FOUND, audioPath);
+            xSemaphoreGiveRecursive(mutex_audio);
+            free(audioPath);
+            return false;
+        }
+    }
+
+    AUDIO_INFO("Reading file: \"%s\"", audioPath);
+    audiofile = fs.open(audioPath);
+
+    if(!audiofile) {
+        printProcessLog(AUDIOLOG_FILE_READ_ERR, audioPath);
+        free(audioPath);
+        xSemaphoreGiveRecursive(mutex_audio);
+        return false;
+    }
+
+    setDatamode(AUDIO_LOCALFILE);
+    m_fileSize = audiofile.size(); // TEST loop
+
+    char* afn = NULL; // audioFileName
+    afn = strdup(audiofile.name());
+
+    uint8_t dotPos = lastIndexOf(afn, ".");
+    for(uint8_t i = dotPos + 1; i < strlen(afn); i++) { afn[i] = toLowerCase(afn[i]); }
+
+    if(endsWith(afn, ".mp3")) m_codec = CODEC_MP3; // m_codec is by default CODEC_NONE
+    if(endsWith(afn, ".m4a")) m_codec = CODEC_M4A;
+    if(endsWith(afn, ".aac")) m_codec = CODEC_AAC;
+    if(endsWith(afn, ".wav")) m_codec = CODEC_WAV;
+    if(endsWith(afn, ".flac")) m_codec = CODEC_FLAC;
+    if(endsWith(afn, ".opus")) m_codec = CODEC_OPUS;
+    if(endsWith(afn, ".ogg")) m_codec = CODEC_OGG;
+    if(endsWith(afn, ".oga")) m_codec = CODEC_OGG;
+
+    if(m_codec == CODEC_NONE) AUDIO_INFO("The %s format is not supported", afn + dotPos);
+
+    if(afn) {
+        free(afn);
+        afn = NULL;
+    }
+    free(audioPath);
+
+    bool ret = initializeDecoder();
+    if(ret) m_f_running = true;
+    else audiofile.close();
+    xSemaphoreGiveRecursive(mutex_audio);
+    return ret;
+}
 //---------------------------------------------------------------------------------------------------------------------
 bool Audio2::connecttospeech(const char *speech, const char *lang)
 {
@@ -898,7 +999,6 @@ bool Audio2::connecttospeech(const char *speech, const char *lang)
     // SECRET_KEY = "8CmQ0egq6jiyKGdzXvPr3dZf7hpFRlmK";
     uint16_t speechLen = strlen(speech);
     uint16_t speechBuffLen = speechLen + 600;
-    memcpy(m_lastHost, speech, 256);
     char *speechBuff = (char *)malloc(speechBuffLen);
     if (!speechBuff)
     {
@@ -918,7 +1018,7 @@ bool Audio2::connecttospeech(const char *speech, const char *lang)
     strcat(resp, "cuid=MNOSvF72O7JZ2KrqZAnIEbY4KBn3repX&");
     strcat(resp, "ctp=1&");
     strcat(resp, "lan=zh&");
-    strcat(resp, "spd=4&");
+    strcat(resp, "spd=5&");
     strcat(resp, "pit=5&");
     strcat(resp, "vol=5&");
     strcat(resp, "per=5118&");
@@ -3901,6 +4001,7 @@ void Audio2::processWebFile()
 
         m_f_running = false;
         m_streamType = ST_NONE;
+        delay(200);
         isplaying = 0;
         if (m_codec == CODEC_MP3)
             MP3Decoder_FreeBuffers();

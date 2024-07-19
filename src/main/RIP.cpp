@@ -32,7 +32,7 @@ void updateRoutingTable(std::vector<Route>& routingTable, const std::vector<Rout
 
 int main() {
     std::vector<Route> routingTable;
-    std::vector<Route> receivedRoutes = {{"192.168.1.0", 1, "Router_X"}};
+    std::vector<Route> receivedRoutes = {{"192.168.1.107", 1, "Router_X"}};
 
     updateRoutingTable(routingTable, receivedRoutes, "Router_X");
 
