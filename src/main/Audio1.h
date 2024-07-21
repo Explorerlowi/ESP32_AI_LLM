@@ -23,7 +23,7 @@ class Audio1
   WiFiClient *_client = nullptr;
   const char *header_format = "{"
                               "\"format\":\"pcm\","
-                              "\"rate\":8000,"
+                              "\"rate\":16000,"
                               "\"dev_pid\":1537,"
                               "\"channel\":1,"
                               "\"cuid\":\"\","
