@@ -6306,7 +6306,7 @@ void Audio2::setVolume(uint8_t vol, uint8_t curve)
     else
         m_curve = curve;
 
-    computeLimit();
+    computeLimit();     // 调整音量大小
 }
 //---------------------------------------------------------------------------------------------------------------------
 uint8_t Audio2::getVolume()

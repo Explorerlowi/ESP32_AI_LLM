@@ -1,9 +1,9 @@
 #include "I2S.h"
-#define SAMPLE_RATE (16000)
+#define SAMPLE_RATE (8000)
 // 定义麦克风引脚
 #define PIN_I2S_BCLK 4
 #define PIN_I2S_LRC 15
-#define PIN_I2S_DIN 22
+#define PIN_I2S_DIN 22  //换成21,19都不行
 // #define PIN_I2S_DOUT 25
 
 const i2s_port_t I2S_PORT = I2S_NUM_0;
