@@ -1,8 +1,8 @@
 #include "Web_Scr_set.h"
 
 // 创建屏幕对象
-Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
-U8G2_FOR_ADAFRUIT_GFX u8g2;
+TFT_eSPI tft = TFT_eSPI();  // 创建TFT对象
+U8g2_for_TFT_eSPI u8g2;
 
 // AP模式的SSID和密码
 const char *ap_ssid = "ESP32-Setup";
@@ -51,7 +51,7 @@ void handleMusicManagement(AsyncWebServerRequest *request)
 // 添加或更新wifi信息逻辑
 void handleSave(AsyncWebServerRequest *request)
 {
-    tft.fillScreen(ST77XX_WHITE);
+    tft.fillScreen(TFT_WHITE);
     u8g2.setCursor(0, 11);
     u8g2.print("进入网络配置！");
 
@@ -90,7 +90,7 @@ void handleSave(AsyncWebServerRequest *request)
 // 删除wifi信息逻辑
 void handleDelete(AsyncWebServerRequest *request)
 {
-    tft.fillScreen(ST77XX_WHITE);
+    tft.fillScreen(TFT_WHITE);
     u8g2.setCursor(0, 11);
     u8g2.print("进入网络配置！");
 
@@ -159,7 +159,7 @@ void handleList(AsyncWebServerRequest *request)
 // 添加或更新音乐信息逻辑
 void handleSaveMusic(AsyncWebServerRequest *request)
 {
-    tft.fillScreen(ST77XX_WHITE);
+    tft.fillScreen(TFT_WHITE);
     u8g2.setCursor(0, 11);
     u8g2.print("进入音乐配置！");
 
@@ -198,7 +198,7 @@ void handleSaveMusic(AsyncWebServerRequest *request)
 // 删除音乐信息逻辑
 void handleDeleteMusic(AsyncWebServerRequest *request)
 {
-    tft.fillScreen(ST77XX_WHITE);
+    tft.fillScreen(TFT_WHITE);
     u8g2.setCursor(0, 11);
     u8g2.print("进入音乐配置！");
 
