@@ -9,6 +9,11 @@
 #define I2S_BCLK 26 // BCLK引脚
 #define I2S_LRC 27  // LRC引脚
 
+//  优先事项！！！
+//  找到.pio\libdeps\upesy_wroom\TFT_eSPI路径下的User_Setup.h文件，删除它，然后将根目录下的User_Setup.h文件剪切粘贴过去
+
+
+
 int llm = 1;    // 大模型选择参数:0:豆包，1：讯飞星火，2：通义千问
 
 // 选哪个模型，就填哪个模型的参数
