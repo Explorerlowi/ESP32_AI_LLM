@@ -4,13 +4,19 @@
 #define key 0       //boot按键引脚
 #define led 2       //板载led引脚
 #define light 33     // 灯光引脚
+#define awake 19     // 唤醒引脚
 // 定义音频放大模块的I2S引脚定义
 #define I2S_DOUT 25 // DIN引脚
 #define I2S_BCLK 26 // BCLK引脚
 #define I2S_LRC 27  // LRC引脚
 
-//  优先事项！！！
+
+
+
+//  优先事项！！！一定要做，不做的话麦克风会因为引脚冲突无法工作
 //  找到.pio\libdeps\upesy_wroom\TFT_eSPI路径下的User_Setup.h文件，删除它，然后将根目录下的User_Setup.h文件剪切粘贴过去
+
+
 
 
 
@@ -38,6 +44,8 @@ String websockets_server1 = "ws://iat-api.xfyun.cn/v2/iat";
 // 讯飞stt语种设置
 String language = "zh_cn";     //zh_cn：中文（支持简单的英文识别）en_us：English
 
+// Dufs的监听端口
+String dufs = "";              // 类似“http://192.168.5.6:5000/”
 // 角色设定
 String roleSet = "你是一个二次元魔法猫娘，你的名字叫小灵，你的性格可爱活泼，说话简短，同时带有攻击嘲讽意味，你喜欢在回答的末尾加一个“喵”字。";
 String roleSet1 = "你是一个二次元魔法猫娘，你的名字叫小灵，你的性格可爱活泼，说话简短，同时带有攻击嘲讽意味，你喜欢在回答的末尾加一个“喵”字。";
@@ -47,15 +55,13 @@ bool ledstatus = true;          // 控制led闪烁
 bool startPlay = false;
 unsigned long urlTime = 0;
 int noise = 50;                 // 噪声门限值
-int volume = 80;               // 初始音量大小（最小0，最大100）
+int volume = 60;               // 初始音量大小（最小0，最大100）
 //音乐播放
 int mainStatus = 0;
 int conStatus = 0;
 int musicnum = 0;   //音乐位置下标
 int musicplay = 0;  // 是否进入连续播放音乐状态
 int cursorY = 0;
-//语音唤醒
-int awake_flag = 1;
 
 /*/ 创建动态JSON文档对象和数组
 StaticJsonDocument<2048> doc;
@@ -76,9 +82,21 @@ String text_temp = "";          //存储超出当前屏幕的文字，在下一�
 int loopcount = 0;      //对话次数计数器
 int flag = 0;           //用来确保subAnswer1一定是大模型回答最开始的内容
 int conflag = 0;        //用于连续对话
-int await_flag = 1;     //待机标识
-int start_con = 0;      //标识是否开启了一轮对话
-int image_show = 0;
+int recording = 0;
+int awake_flag = 0;      //标识是否处于唤醒状态
+int image_show = 0;     //标识显示哪张图片
+int i = 0;              // 用于显示表情
+unsigned long startTime = 0;
+unsigned long endTime = 0;
+int shuaxin = 0;
+int chouxiang = 0;
+
+int hint = 0;   // 提示音
+
+// UART 接收缓冲区
+const int BUFFER_SIZE = 5; // 每个命令包的大小
+char buffer[BUFFER_SIZE];  // 接收缓冲区
+int globalIndex = 0;             // 当前接收到的数据在缓冲区中的位置
 
 using namespace websockets; // 使用WebSocket命名空间
 // 创建WebSocket客户端对象
@@ -112,6 +130,26 @@ void tongyi();
 
 void voicePlay()
 {
+    if (audio2.isplaying == 0 && chouxiang != 0)
+    {
+        if (chouxiang == 1)
+        {
+            audio2.connecttohost((dufs + "dingzhen.mp3").c_str());
+            
+        }
+        else if (chouxiang == 2)
+        {
+            audio2.connecttohost((dufs + "kunkun.mp3").c_str());
+            
+        }
+        else
+        {
+            audio2.connecttohost((dufs + "laoda.mp3").c_str());
+            
+        }
+        startPlay = false;
+        return;
+    }
     // 检查音频是否正在播放以及回答内容是否为空
     if ((audio2.isplaying == 0) && (Answer != "" || subindex < subAnswers.size()))
     {
@@ -139,6 +177,7 @@ void voicePlay()
         else
         {
             audio2.connecttospeech(Answer.c_str(), "zh");
+            hint = 1;
             // 在屏幕上显示文字
             if (text_temp != "" && flag == 1)
             {
@@ -160,6 +199,11 @@ void voicePlay()
         }
         // 设置开始播放标志
         startPlay = true;
+    }
+    else if (audio2.isplaying == 0 && hint == 1)
+    {
+        audio2.connecttoFS(SPIFFS, "/hint1.mp3"); // SPIFFS
+        hint = 0;
     }
     else if (audio2.isplaying == 0 && musicplay == 1)   // 处理连续播放音乐逻辑
     {
@@ -189,6 +233,17 @@ void voicePlay()
     {
         // 如果音频正在播放或回答内容为空，不做任何操作
     }
+}
+
+void response()
+{
+    tft.fillScreen(TFT_WHITE);
+    tft.setCursor(0, 0);
+    tft.print("assistant: ");
+    audio2.connecttospeech(Answer.c_str(), "zh");
+    displayWrappedText(Answer.c_str(), tft.getCursorX(), tft.getCursorY() + 11, width);
+    recording = 0;
+    Answer = "";
 }
 
 void StartConversation()
@@ -230,6 +285,60 @@ void imageshow()
     image_show = 0;
 }
 
+bool isValidCommand(const char cmdBuffer[]) 
+{
+  // 检查命令格式是否正确
+  return (cmdBuffer[0] == 0xAA && cmdBuffer[1] == 0x55 &&
+          cmdBuffer[3] == 0x55 && cmdBuffer[4] == 0xAA);
+}
+
+void processCommand(uint8_t command) 
+{
+  switch (command) {
+    case 0x01:
+        Serial.println("Received command 01.");
+        // 执行命令 01 的操作
+        audio2.connecttohost((dufs + "wocenima.mp3").c_str());
+        startPlay = true;
+        chouxiang = 1;
+        tft.pushImage(0, 0, width, height, guichu[0]);   // 丁真
+        awake_flag = 1;
+        break;
+    case 0x02:
+        Serial.println("Received command 02.");
+        // 执行命令 02 的操作
+        audio2.connecttohost((dufs + "Man.mp3").c_str());
+        startPlay = true;
+        chouxiang = 3;
+        tft.pushImage(0, 0, width, height, guichu[2]);   // 牢大
+        awake_flag = 1;
+        break;
+    case 0x03:
+        Serial.println("Received command 03.");
+        // 执行命令 03 的操作
+        audio2.connecttohost((dufs + "niganma.mp3").c_str());
+        startPlay = true;
+        chouxiang = 2;
+        tft.pushImage(0, 0, width, height, guichu[1]);   // 坤坤
+        awake_flag = 1;
+        break;
+    case 0x04:
+        Serial.println("Received command 04.");
+        // 执行命令 04 的操作
+        shuaxin = 0;
+        conflag = 0;
+        awake_flag = 1;      //标识已被唤醒
+        loopcount++;
+        Serial.print("loopcount：");
+        Serial.println(loopcount);
+        StartConversation();
+        break;
+    default:
+        Serial.println("Unknown command received.");
+        break;
+  }
+}
+
 void setup()
 {
     // 初始化串口通信，波特率为115200
@@ -247,6 +356,8 @@ void setup()
     pinMode(light, OUTPUT);
     // 将light初始化为低电平
     digitalWrite(light, LOW);
+
+    pinMode(awake, INPUT);
 
     // 初始化屏幕
     tft.init();
@@ -292,7 +403,6 @@ void setup()
         u8g2.setCursor(0, 11);
         u8g2.print("网络连接成功！");
         displayWrappedText("请进行语音唤醒或按boot键开始对话！", 0, u8g2.getCursorY() + 12, width);
-        awake_flag = 0;
     }
     else
     {
@@ -300,8 +410,19 @@ void setup()
     }
     // 记录当前时间，用于后续时间戳比较
     urlTime = millis();
+    // 清空串口数据
+    while (Serial2.available()) 
+    {
+        Serial2.read();
+    }
+    audio2.connecttospeech("系统初始化完毕，请使用唤醒词唤醒我。", "zh");
     // 延迟1000毫秒，便于用户查看屏幕显示的信息，同时使设备充分初始化
-    delay(1000);
+    if(!SPIFFS.begin(true))
+    {
+        Serial.println("初始化SPIFFS时发生错误");
+        return;
+    }
+    //tft.fillScreen(TFT_WHITE);
 }
 
 void loop()
@@ -319,33 +440,91 @@ void loop()
     // 如果音频正在播放
     if (audio2.isplaying == 1)  digitalWrite(led, HIGH);    // 点亮板载LED指示灯
     else    digitalWrite(led, LOW);     // 熄灭板载LED指示灯
-    
-    // 唤醒词识别
-    if (audio2.isplaying == 0 && awake_flag == 0 && await_flag == 1)
+
+    if (millis() - endTime > 2000 && audio2.isplaying == 0 && (shuaxin == 1 || (chouxiang != 0 && startPlay == false)))
     {
-        awake_flag = 1;
-        StartConversation();
+        // 清空屏幕，在屏幕上输出提示信息
+        tft.fillScreen(TFT_WHITE);
+        u8g2.setCursor(0, 0);
+        displayWrappedText("请进行语音唤醒或按boot键进行对话！", 0, u8g2.getCursorY() + 11, width);
+        shuaxin = 0;
+        // 抽象三幻神壁纸相关
+        chouxiang = 0;
+        conflag = 0;
+        awake_flag = 0;
     }
 
-    // 检测boot按键是否按下
-    if (digitalRead(key) == 0)
+    if (millis() - startTime > 80 && audio2.isplaying == 0 && awake_flag == 0 && shuaxin == 0)
+    {
+        startTime = millis();
+        tft.pushImage(0, 90, width, 60, image0[i]);   // 用于壁纸显示的代码
+        i = i >= image0_size - 1 ? 0 : i + 1;
+    }
+
+    // 唤醒词识别，并触发唤醒语音
+    if (digitalRead(awake) == 0 && awake_flag == 0)
+    {
+        shuaxin = 0;
+        awake_flag = 1;      //标识已被唤醒
+        Answer = "喵~我在的，主人。";
+        response();     //屏幕显示Answer以及语音播放
+        conflag = 1;
+    }
+
+    while (Serial2.available()) 
+    {
+        char incomingByte = Serial2.read();
+        // 将接收到的字节添加到缓冲区
+        buffer[globalIndex] = incomingByte;
+        globalIndex++;
+        Serial.print((int)incomingByte, HEX);
+        // 如果接收到完整的命令包
+        if (globalIndex == BUFFER_SIZE) 
+        {
+            //Serial.print("recoding: ");
+            //Serial.println(recording);
+            if (isValidCommand(buffer) && recording == 0) 
+            {
+                uint8_t command = buffer[2]; // 提取命令字节
+                processCommand(command);
+            }
+            // 清空缓冲区
+            memset(buffer, 0, BUFFER_SIZE);
+            globalIndex = 0;
+            while (Serial2.available()) 
+            {
+                Serial2.read();
+            }
+        }
+    }
+    
+    // 触发抽象三幻神之后，如果进行了指令操作，会将conflag置为1，这就会导致三幻神播放完之后会触发连续对话，因此需要将conflag置零
+    if (chouxiang != 0)
     {
         conflag = 0;
+    }
+
+    // 检测boot按键是否按下，或者触发抽象三幻神之后，可以直接唤醒词唤醒进行指令操作，不会触发唤醒语音
+    if (digitalRead(key) == 0)
+    {
+        shuaxin = 0;
+        conflag = 0;
+        awake_flag = 1;      //标识已被唤醒
         loopcount++;
         Serial.print("loopcount：");
         Serial.println(loopcount);
         StartConversation();
     }
     // 连续对话
-    if (audio2.isplaying == 0 && Answer == "" && subindex == subAnswers.size() && musicplay == 0 && conflag == 1 && image_show == 0)
+    if (audio2.isplaying == 0 && Answer == "" && subindex == subAnswers.size() && musicplay == 0 && conflag == 1 && image_show == 0 && hint == 0)
     {
         loopcount++;
         Serial.print("loopcount：");
         Serial.println(loopcount);
         StartConversation();
     }
-
-    if (audio2.isplaying == 1 && image_show == 1)
+        
+    if (image_show != 0)
     {
         imageshow();
     }
@@ -386,7 +565,7 @@ void displayWrappedText(const string &text1, int x, int y, int maxWidth)
 
             int charBytes = subWord.size(); // 获取字符的字节长度
 
-            int charWidth = charBytes == 3 ? 12 : 6; // 中文字符12像素宽度，英文字符6像素宽度
+            int charWidth = charBytes == 3 ? 12 : 8; // 中文字符12像素宽度，英文字符6像素宽度
             if (wid + charWidth > maxWidth - cursorX)
             {
                 break;
@@ -486,10 +665,10 @@ void checkLen()
     }
     Serial.print("text size:");
     Serial.println(totalBytes);
-    // 当vector中的字符串总长度超过800字节时，删除最开始的一对对话
-    if (totalBytes > 800)
+    // 当vector中的字符串总长度超过1000字节时，删除最开始的一对对话
+    if (totalBytes > 1000)
     {
-        Serial.println("totalBytes大于800,删除最开始的一对对话");
+        Serial.println("totalBytes大于1000,删除最开始的一对对话");
         text.erase(text.begin(), text.begin() + 2);
     }
     // 函数没有返回值，直接修改传入的JSON数组
@@ -595,7 +774,22 @@ void processResponse(int status)
         {
             // 查找第一个句号的位置
             int firstPeriodIndex = Answer.indexOf("。");
-            // 如果找到句号
+            if (firstPeriodIndex == -1)
+            {
+                // 如果没有找到句号，则查找第一个分号的位置
+                int firstPeriodIndex = Answer.indexOf("；");
+            }
+            if (firstPeriodIndex == -1)
+            {
+                // 如果没有找到分号，则查找第一个问号的位置
+                int firstPeriodIndex = Answer.indexOf("？");
+            }
+            if (firstPeriodIndex == -1)
+            {
+                // 如果没有找到问号，则查找第一个感叹号的位置
+                int firstPeriodIndex = Answer.indexOf("！");
+            }
+            // 如果找到
             if (firstPeriodIndex != -1)
             {
                 // 提取完整的句子并播放
@@ -608,6 +802,7 @@ void processResponse(int status)
 
                 // 获取最终转换的文本
                 getText("assistant", subAnswer1);
+                recording = 0;
                 tft.setCursor(54, 152);
                 tft.print(loopcount);
                 flag = 1;
@@ -617,6 +812,10 @@ void processResponse(int status)
                 subAnswer1.clear();
                 // 设置播放开始标志
                 startPlay = true;
+            }
+            else
+            {
+                Serial.println("问题里面句号、分号、问号、感叹号断句都没有！");
             }
         }
         else
@@ -630,6 +829,7 @@ void processResponse(int status)
                 Serial.println(subAnswer1);
                 audio2.connecttospeech(subAnswer1.c_str(), "zh");
                 getText("assistant", subAnswer1);
+                recording = 0;
                 tft.setCursor(54, 152);
                 tft.print(loopcount);
                 flag = 1;
@@ -644,6 +844,7 @@ void processResponse(int status)
                 Serial.println(subAnswer1);
                 audio2.connecttospeech(subAnswer1.c_str(), "zh");
                 getText("assistant", subAnswer1);
+                recording = 0;
                 tft.setCursor(54, 152);
                 tft.print(loopcount);
                 flag = 1;
@@ -661,7 +862,22 @@ void processResponse(int status)
         {
             // 查找第一个句号的位置
             int firstPeriodIndex = Answer.indexOf("。");
-            // 如果找到句号
+            if (firstPeriodIndex == -1)
+            {
+                // 如果没有找到句号，则查找第一个分号的位置
+                int firstPeriodIndex = Answer.indexOf("；");
+            }
+            if (firstPeriodIndex == -1)
+            {
+                // 如果没有找到分号，则查找第一个问号的位置
+                int firstPeriodIndex = Answer.indexOf("？");
+            }
+            if (firstPeriodIndex == -1)
+            {
+                // 如果没有找到问号，则查找第一个感叹号的位置
+                int firstPeriodIndex = Answer.indexOf("！");
+            }
+            // 如果找到
             if (firstPeriodIndex != -1)
             {
                 subAnswers.push_back(Answer.substring(0, firstPeriodIndex + 3));
@@ -671,6 +887,10 @@ void processResponse(int status)
                 Serial.println(subAnswers[subAnswers.size() - 1]);
 
                 Answer = Answer.substring(firstPeriodIndex + 3);
+            }
+            else
+            {
+                Serial.println("问题里面句号、分号、问号、感叹号断句都没有！");
             }
         }
         else
@@ -704,12 +924,15 @@ void processResponse(int status)
     {
         // 播放最终转换的文本
         audio2.connecttospeech(Answer.c_str(), "zh");
+        hint = 1;
         // 显示最终转换的文本
         getText("assistant", Answer);
+        recording = 0;
         tft.setCursor(54, 152);
         tft.print(loopcount);
         Answer = "";
         conflag = 1;
+        startPlay = true;
     }
 }
 
@@ -829,8 +1052,12 @@ void VolumeSet()
     {
         Serial.print("当前音量为: ");
         Serial.println(volume);
-        // 在屏幕上显示音量
-        tft.fillRect(66, 152, 62, 7, TFT_WHITE);
+        if (chouxiang != 0)
+        {
+            tft.pushImage(0, 0, width, height, guichu[chouxiang - 1]);
+        }
+        else
+            tft.fillRect(66, 152, 62, 7, TFT_WHITE);    // 在屏幕上显示音量
         tft.setCursor(66, 152);
         tft.print("volume:");
         tft.print(volume);
@@ -841,8 +1068,12 @@ void VolumeSet()
         audio2.setVolume(volume);
         Serial.print("音量已调到: ");
         Serial.println(volume);
-        // 在屏幕上显示音量
-        tft.fillRect(66, 152, 62, 7, TFT_WHITE);
+        if (chouxiang != 0)
+        {
+            tft.pushImage(0, 0, width, height, guichu[chouxiang - 1]);
+        }
+        else
+            tft.fillRect(66, 152, 62, 7, TFT_WHITE);    // 在屏幕上显示音量
         tft.setCursor(66, 152);
         tft.print("volume:");
         tft.print(volume);
@@ -853,8 +1084,12 @@ void VolumeSet()
         audio2.setVolume(volume);
         Serial.print("音量已调到: ");
         Serial.println(volume);
-        // 在屏幕上显示音量
-        tft.fillRect(66, 152, 62, 7, TFT_WHITE);
+        if (chouxiang != 0)
+        {
+            tft.pushImage(0, 0, width, height, guichu[chouxiang - 1]);
+        }
+        else
+            tft.fillRect(66, 152, 62, 7, TFT_WHITE);    // 在屏幕上显示音量
         tft.setCursor(66, 152);
         tft.print("volume:");
         tft.print(volume);
@@ -869,8 +1104,12 @@ void VolumeSet()
         audio2.setVolume(volume);
         Serial.print("音量已调到: ");
         Serial.println(volume);
-        // 在屏幕上显示音量
-        tft.fillRect(66, 152, 62, 7, TFT_WHITE);
+        if (chouxiang != 0)
+        {
+            tft.pushImage(0, 0, width, height, guichu[chouxiang - 1]);
+        }
+        else
+            tft.fillRect(66, 152, 62, 7, TFT_WHITE);    // 在屏幕上显示音量
         tft.setCursor(66, 152);
         tft.print("volume:");
         tft.print(volume);
@@ -881,8 +1120,12 @@ void VolumeSet()
         audio2.setVolume(volume);
         Serial.print("音量已调到: ");
         Serial.println(volume);
-        // 在屏幕上显示音量
-        tft.fillRect(66, 152, 62, 7, TFT_WHITE);
+        if (chouxiang != 0)
+        {
+            tft.pushImage(0, 0, width, height, guichu[chouxiang - 1]);
+        }
+        else
+            tft.fillRect(66, 152, 62, 7, TFT_WHITE);    // 在屏幕上显示音量
         tft.setCursor(66, 152);
         tft.print("volume:");
         tft.print(volume);
@@ -897,25 +1140,20 @@ void VolumeSet()
         audio2.setVolume(volume);
         Serial.print("音量已调到: ");
         Serial.println(volume);
-        // 在屏幕上显示音量
-        tft.fillRect(66, 152, 62, 7, TFT_WHITE);
+        if (chouxiang != 0)
+        {
+            tft.pushImage(0, 0, width, height, guichu[chouxiang - 1]);
+        }
+        else
+            tft.fillRect(66, 152, 62, 7, TFT_WHITE);    // 在屏幕上显示音量
         tft.setCursor(66, 152);
         tft.print("volume:");
         tft.print(volume);
     }
+    recording = 0;
     conflag = 1;
 }
 // 音乐播放处理逻辑
-
-void response()
-{
-    tft.fillScreen(TFT_WHITE);
-    tft.setCursor(0, 0);
-    tft.print("assistant: ");
-    audio2.connecttospeech(Answer.c_str(), "zh");
-    displayWrappedText(Answer.c_str(), tft.getCursorX(), tft.getCursorY() + 11, width);
-    Answer = "";
-}
 
 // 接收stt返回的语音识别文本并做相应的逻辑处理
 void onMessageCallback1(WebsocketsMessage message)
@@ -945,8 +1183,8 @@ void onMessageCallback1(WebsocketsMessage message)
     else
     {
         // 输出收到的讯飞云返回消息
-        Serial.println("xunfeiyun stt return message:");
-        Serial.println(message.data());
+        //Serial.println("xunfeiyun stt return message:");
+        //Serial.println(message.data());
 
         // 获取JSON数据中的结果部分，并提取文本内容
         JsonArray ws = jsonDocument["data"]["result"]["ws"].as<JsonArray>();
@@ -975,7 +1213,7 @@ void onMessageCallback1(WebsocketsMessage message)
             webSocketClient1.close();
 
             // 如果是调声音大小还有开关灯的指令，就不打断当前的语音
-            if ((askquestion.indexOf("声音") == -1 && askquestion.indexOf("音量") == -1) && !((askquestion.indexOf("开") > -1 || askquestion.indexOf("关") > -1) && askquestion.indexOf("灯") > -1))
+            if ((askquestion.indexOf("声音") == -1 && askquestion.indexOf("音量") == -1) && !((askquestion.indexOf("开") > -1 || askquestion.indexOf("关") > -1) && askquestion.indexOf("灯") > -1) && !(askquestion.indexOf("暂停") > -1 || askquestion.indexOf("恢复") > -1))
             {
                 webSocketClient.close();    //关闭llm服务器，打断上一次提问的回答生成
                 audio2.isplaying = 0;
@@ -985,32 +1223,7 @@ void onMessageCallback1(WebsocketsMessage message)
                 subindex = 0;
                 subAnswers.clear();
                 text_temp = "";
-            }
-
-            if (askquestion.indexOf("九哥"))
-            {
-                askquestion.replace("九哥", "九歌");
-            }
-
-            // 如果正处于待机状态，则判断唤醒词是否正确
-            if (await_flag == 1)
-            {
-                // 增加足够多的同音字可以提高唤醒率，支持多唤醒词唤醒(askquestion.indexOf("你好") > -1 || askquestion.indexOf("您好") > -1) &&
-                if( (askquestion.indexOf("坤坤") > -1 || askquestion.indexOf("小白") > -1 || askquestion.indexOf("丁真") > -1 || askquestion.indexOf("九歌") > -1))
-                {
-                    await_flag = 0;     //退出待机状态
-                    start_con = 1;      //对话开始标识
-                    Answer = "喵~九歌在的，请尽情吩咐小九歌，主人。";
-                    response();     //屏幕显示Answer以及语音播放
-                    conflag = 1;
-                    return;
-                }
-                else
-                {
-                    // 将awake_flag置为0，继续进行唤醒词识别
-                    awake_flag = 0;
-                    return;
-                }
+                chouxiang = 0;
             }
 
             // 如果问句为空，播放错误提示语音
@@ -1020,14 +1233,25 @@ void onMessageCallback1(WebsocketsMessage message)
                 response();     //屏幕显示Answer以及语音播放
                 conflag = 1;
             }
-            else if (askquestion.indexOf("退下") > -1 || askquestion.indexOf("再见") > -1 || askquestion.indexOf("拜拜") > -1)
+            else if (askquestion.indexOf("退下") > -1)
             {
-                start_con = 0;      // 标识一轮对话结束
+                awake_flag = 0;      // 退出唤醒状态
+                shuaxin = 1;
                 musicplay = 0;
-                Answer = "喵~主人，我先退下了，有事再叫我。";
+                Answer = "主人，我先退下了，有事再找我喵~";
                 response();     //屏幕显示Answer以及语音播放
-                await_flag = 1;     // 进入待机状态
-                awake_flag = 0;     // 继续进行唤醒词识别
+                endTime = millis();
+            }
+            else if (askquestion.indexOf("再见") > -1 || askquestion.indexOf("拜拜") > -1 || askquestion.indexOf("休眠") > -1)
+            {
+                awake_flag = 0;      // 退出唤醒状态
+                shuaxin = 1;
+                musicplay = 0;
+                Answer = "好的，我随时都在，有事请随时呼唤我，再见！喵~";
+                response();     //屏幕显示Answer以及语音播放
+                endTime = millis();
+                String data = "ture";
+                Serial2.write(data.c_str(), data.length());
             }
             else if (askquestion.indexOf("断开") > -1 && (askquestion.indexOf("网络") > -1 || askquestion.indexOf("连接") > -1))
             {
@@ -1039,21 +1263,86 @@ void onMessageCallback1(WebsocketsMessage message)
                 openWeb();
                 displayWrappedText("热点ESP32-Setup已开启，密码为12345678，可在浏览器中打开http://192.168.4.1进行网络和音乐信息配置！", 0, u8g2.getCursorY() + 12, width);
             }
+            else if (audio2.isplaying == 1 && askquestion.indexOf("暂停") > -1)
+            {
+                if (chouxiang != 0)
+                {
+                    tft.pushImage(0, 0, width, height, guichu[chouxiang - 1]);
+                }
+                else
+                    tft.fillRect(0, 148, 50, 12, TFT_WHITE);     // 清空左下角的“请说话！”提示
+
+                if(audio2.isRunning())
+                {   
+                    Serial.println("已经暂停！");
+                    audio2.pauseResume();
+                }
+                else
+                {
+                    Serial.println("当前没有音频正在播放！");
+                }
+                recording = 0;
+            }
+            else if (audio2.isplaying == 1 && askquestion.indexOf("恢复") > -1)
+            {
+                if (chouxiang != 0)
+                {
+                    tft.pushImage(0, 0, width, height, guichu[chouxiang - 1]);
+                }
+                else
+                    tft.fillRect(0, 148, 50, 12, TFT_WHITE);     // 清空左下角的“请说话！”提示
+
+                if(!audio2.isRunning())
+                {   
+                    Serial.println("已经恢复！");
+                    audio2.pauseResume();
+                }
+                else
+                {
+                    Serial.println("当前没有音频正在暂停！");
+                }
+                recording = 0;
+            }
             else if (askquestion.indexOf("声音") > -1 || askquestion.indexOf("音量") > -1)
             {
-                tft.fillRect(0, 148, 50, 12, TFT_WHITE);     // 清空左下角的“请说话！”提示
+                if (chouxiang != 0)
+                {
+                    tft.pushImage(0, 0, width, height, guichu[chouxiang - 1]);
+                }
+                else
+                    tft.fillRect(0, 148, 50, 12, TFT_WHITE);     // 清空左下角的“请说话！”提示
                 VolumeSet();    //  调整音量
             }
             else if (askquestion.indexOf("开") > -1 && askquestion.indexOf("灯") > -1)
             {
-                tft.fillRect(0, 148, 50, 12, TFT_WHITE);     // 清空左下角的“请说话！”提示
+                if (chouxiang != 0)
+                {
+                    tft.pushImage(0, 0, width, height, guichu[chouxiang - 1]);
+                }
+                else
+                    tft.fillRect(0, 148, 50, 12, TFT_WHITE);     // 清空左下角的“请说话！”提示
                 digitalWrite(light, HIGH);
+                recording = 0;
                 conflag = 1;
             }
             else if (askquestion.indexOf("关") > -1 && askquestion.indexOf("灯") > -1)
             {
-                tft.fillRect(0, 148, 50, 12, TFT_WHITE);     // 清空左下角的“请说话！”提示
+                if (chouxiang != 0)
+                {
+                    tft.pushImage(0, 0, width, height, guichu[chouxiang - 1]);
+                }
+                else
+                    tft.fillRect(0, 148, 50, 12, TFT_WHITE);     // 清空左下角的“请说话！”提示
                 digitalWrite(light, LOW);
+                recording = 0;
+                conflag = 1;
+            }
+            else if (askquestion.indexOf("换") > -1 && askquestion.indexOf("模型") > -1)
+            {
+                String numberStr = extractNumber(askquestion);
+                llm = numberStr.toInt() - 1;
+                Answer = "喵~已为你切换为第"+ numberStr + "个模型";
+                response();     //屏幕显示Answer以及语音播放
                 conflag = 1;
             }
             else if (conStatus == 1)
@@ -1079,6 +1368,7 @@ void onMessageCallback1(WebsocketsMessage message)
                     Answer = "好的，那主人还有其它吩咐吗？喵~";
                     audio2.connecttospeech(Answer.c_str(), "zh");
                     displayWrappedText(Answer.c_str(), tft.getCursorX(), tft.getCursorY() + 11, width);
+                    recording = 0;
                     Answer = "";
                     conStatus = 0;
                     conflag = 1;
@@ -1219,6 +1509,7 @@ void onMessageCallback1(WebsocketsMessage message)
                         Answer = "主人，曲库里还没有这首歌哦，换一首吧，喵~";
                         audio2.connecttospeech(Answer.c_str(), "zh");
                         displayWrappedText(Answer.c_str(), tft.getCursorX(), tft.getCursorY() + 11, width);
+                        recording = 0;
                         Answer = "";
                         conflag = 1;
                     } 
@@ -1235,6 +1526,7 @@ void onMessageCallback1(WebsocketsMessage message)
                         Serial.println(askquestion);
                         displayWrappedText(askquestion.c_str(), tft.getCursorX(), tft.getCursorY() + 11, width);
                         startPlay = true;   // 设置播放开始标志
+                        recording = 0;
                         if (musicplay == 0)
                         {
                             flag = 1;
@@ -1294,6 +1586,7 @@ void onMessageCallback1(WebsocketsMessage message)
                     Answer = "好的，那主人还有其它吩咐吗？喵~";
                     audio2.connecttospeech(Answer.c_str(), "zh");
                     displayWrappedText(Answer.c_str(), tft.getCursorX(), tft.getCursorY() + 11, width);
+                    recording = 0;
                     Answer = "";
                     conflag = 1;
                     return;
@@ -1357,6 +1650,7 @@ void onMessageCallback1(WebsocketsMessage message)
                     Answer = "好的喵，主人，你想听哪首歌呢，喵~";
                     audio2.connecttospeech(Answer.c_str(), "zh");
                     displayWrappedText(Answer.c_str(), tft.getCursorX(), tft.getCursorY() + 11, width);
+                    recording = 0;
                     Answer = "";
                     conflag = 1;
                 } 
@@ -1376,6 +1670,7 @@ void onMessageCallback1(WebsocketsMessage message)
                     displayWrappedText(askquestion.c_str(), tft.getCursorX(), tft.getCursorY() + 11, width);
                     startPlay = true;   // 设置播放开始标志
                     conStatus = 1;
+                    recording = 0;
                     if (musicplay == 0)
                     {
                         flag = 1;
@@ -1384,18 +1679,6 @@ void onMessageCallback1(WebsocketsMessage message)
                     conflag = 1;
                 }
                 preferences.end();
-            }
-            else if (askquestion.indexOf("放") > -1 && (askquestion.indexOf("图片") > -1 || askquestion.indexOf("幻灯片") > -1))
-            {
-                tft.fillScreen(TFT_WHITE);
-                tft.setCursor(0, 0);
-                getText("user", askquestion);
-                Answer = "这就开始放映主人喜欢的图片，喵~";
-                audio2.connecttospeech(Answer.c_str(), "zh");
-                getText("assistant", Answer);
-                Answer = "";
-                image_show = 1;
-                conflag = 1;
             }
             else    // 处理一般的问答请求
             {
@@ -1446,13 +1729,7 @@ void onEventsCallback1(WebsocketsEvent event, String data)
         // 创建一个静态JSON文档对象，2000一般够了，不够可以再加（最多不能超过4096），但是可能会发生内存溢出
         StaticJsonDocument<2000> doc;
 
-        if (await_flag == 1)
-        {
-            tft.fillScreen(TFT_WHITE);
-            u8g2.setCursor(0, 11);
-            u8g2.print("待机中......");
-        }
-        else if (conflag == 1)
+        if (conflag == 1)
         {
             tft.fillScreen(TFT_WHITE);
             u8g2.setCursor(0, 11);
@@ -1464,19 +1741,13 @@ void onEventsCallback1(WebsocketsEvent event, String data)
             u8g2.print("请说话！");
         }
         conflag = 0;
+        //unsigned long startTime = 0;
 
         Serial.println("开始录音");
+        recording = 1;
         // 无限循环，用于录制和发送音频数据
         while (1)
         {
-            // 待机状态（语音唤醒状态）也可通过boot键启动
-            if (digitalRead(key) == 0 && await_flag == 1)
-            {
-                start_con = 1;      //对话开始标识
-                await_flag = 0;
-                webSocketClient1.close();
-                break;
-            }
             // 清空JSON文档
             doc.clear();
 
@@ -1488,7 +1759,7 @@ void onEventsCallback1(WebsocketsEvent event, String data)
 
             // 计算音频数据的RMS值
             float rms = calculateRMS((uint8_t *)audio1.wavData[0], 1280);
-            if (null_voice < 10 && rms > 1000) // 抑制录音初期奇奇怪怪的噪声
+            if (rms > 1000) // 抑制录音奇奇怪怪的噪声
             {
                 rms = 8.6;
             }
@@ -1496,16 +1767,11 @@ void onEventsCallback1(WebsocketsEvent event, String data)
 
             if(null_voice >= 80)    // 如果从录音开始过了8秒才说话，讯飞stt识别会超时，所以直接结束本次录音，重新开始录音
             {
-                if (start_con == 1)     // 表示正处于对话中，才回复退下，没有进入对话则继续待机
-                {
-                    start_con = 0;      // 退出对话
-                    Answer = "主人，我先退下了，有事再找我喵~";
-                    response();     //屏幕显示Answer以及语音播放
-                }
-                // 标识正处于待机状态
-                await_flag = 1;
-                // 将awake_flag置为0,继续进行唤醒词识别
-                awake_flag = 0;
+                awake_flag = 0;      // 退出唤醒状态
+                shuaxin = 1;
+                Answer = "主人，我先退下了，有事再找我喵~";
+                response();     //屏幕显示Answer以及语音播放
+                endTime = millis();
                 // 录音超时，断开本次连接
                 webSocketClient1.close();
                 Serial.println("录音结束");
@@ -1536,10 +1802,10 @@ void onEventsCallback1(WebsocketsEvent event, String data)
                 }
                 silence = 0;
             }
-
             // 如果静音达到8个周期，发送结束标志的音频数据
             if (silence == 8)
             {
+                //startTime = millis();
                 data["status"] = 2;
                 data["format"] = "audio/L16;rate=8000";
                 data["audio"] = base64::encode((byte *)audio1.wavData[0], 1280);
@@ -1549,6 +1815,8 @@ void onEventsCallback1(WebsocketsEvent event, String data)
                 serializeJson(doc, jsonString);
 
                 webSocketClient1.send(jsonString);
+                //startTime = millis();
+                //Serial.println(millis() - startTime);
                 delay(40);
                 Serial.println("录音结束");
                 break;
@@ -1557,6 +1825,7 @@ void onEventsCallback1(WebsocketsEvent event, String data)
             // 处理第一帧音频数据
             if (firstframe == 1)
             {
+                //startTime = millis();
                 data["status"] = 0;
                 data["format"] = "audio/L16;rate=8000";
                 data["audio"] = base64::encode((byte *)audio1.wavData[0], 1280);
@@ -1580,10 +1849,13 @@ void onEventsCallback1(WebsocketsEvent event, String data)
 
                 webSocketClient1.send(jsonString);
                 firstframe = 0;
+                //startTime = millis();
+                //Serial.println(millis() - startTime);
                 delay(40);
             }
             else
             {
+                //startTime = millis();
                 // 处理后续帧音频数据
                 data["status"] = 1;
                 data["format"] = "audio/L16;rate=8000";
@@ -1594,6 +1866,8 @@ void onEventsCallback1(WebsocketsEvent event, String data)
                 serializeJson(doc, jsonString);
 
                 webSocketClient1.send(jsonString);
+                //startTime = millis();
+                //Serial.println(millis() - startTime);
                 delay(40);
             }
         }
