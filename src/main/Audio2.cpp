@@ -663,6 +663,8 @@ bool Audio2::connecttohost(const char *host, const char *user, const char *pwd)
         }
         setDatamode(HTTP_RESPONSE_HEADER); // Handle header
         m_streamType = ST_WEBSTREAM;  // ST_WEBSTREAM;
+        Serial.print("play music: ");
+        Serial.println(m_streamType);
     }
     else
     {
@@ -979,8 +981,18 @@ bool Audio2::connecttoFS(fs::FS& fs, const char* path, int32_t fileStartPos) {
     free(audioPath);
 
     bool ret = initializeDecoder();
-    if(ret) m_f_running = true;
-    else audiofile.close();
+    if(ret)
+    {
+        isplaying = 1;
+        m_f_running = true;
+        Serial.println("SPIFFS True!");
+        Serial.println(m_codec);
+    }
+    else 
+    {
+        Serial.println("SPIFFS False!");
+        audiofile.close();
+    }
     xSemaphoreGiveRecursive(mutex_audio);
     return ret;
 }
@@ -1018,7 +1030,7 @@ bool Audio2::connecttospeech(const char *speech, const char *lang)
     strcat(resp, "cuid=MNOSvF72O7JZ2KrqZAnIEbY4KBn3repX&");
     strcat(resp, "ctp=1&");
     strcat(resp, "lan=zh&");
-    strcat(resp, "spd=5&");
+    strcat(resp, "spd=6&");
     strcat(resp, "pit=5&");
     strcat(resp, "vol=5&");
     strcat(resp, "per=5118&");
@@ -1051,6 +1063,8 @@ bool Audio2::connecttospeech(const char *speech, const char *lang)
     // _client->print(resp);
     // Serial.println(resp);
     m_streamType = ST_WEBFILE;
+    Serial.print("play speech: ");
+    Serial.println(m_streamType);
     isplaying = 1;
     m_f_running = true;
     m_f_ssl = false;
@@ -2750,8 +2764,11 @@ bool Audio2::pauseResume()
 {
     xSemaphoreTake(mutex_audio, portMAX_DELAY);
     bool retVal = false;
-    if (getDatamode() == AUDIO_LOCALFILE || m_streamType == ST_WEBSTREAM)
+    Serial.println("ok111!");
+    Serial.println(m_streamType);
+    if (getDatamode() == AUDIO_LOCALFILE || m_streamType == ST_WEBFILE)
     {
+        Serial.println("ok222!");
         m_f_running = !m_f_running;
         retVal = true;
         if (!m_f_running)
@@ -3702,6 +3719,7 @@ void Audio2::processLocalFile()
         char *afn = strdup(audiofile.name()); // store temporary the name
         m_f_running = false;
         m_streamType = ST_NONE;
+        isplaying = 0;
         audiofile.close();
         AUDIO_INFO("Closing audio file");
 
@@ -4001,8 +4019,8 @@ void Audio2::processWebFile()
 
         m_f_running = false;
         m_streamType = ST_NONE;
-        delay(200);
         isplaying = 0;
+        delay(200);
         if (m_codec == CODEC_MP3)
             MP3Decoder_FreeBuffers();
 
