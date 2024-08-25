@@ -19,9 +19,7 @@
 // 与屏幕显示有关的库
 #include <TFT_eSPI.h>
 #include <U8g2_for_TFT_eSPI.h>
-#include "bizhi.h"
-#include "guichu.h"
-#include "listening.h"
+#include "bizhi.h"    //导入壁纸数据
 #define width   128     //屏幕宽度
 #define height  160     //屏幕高度
 
