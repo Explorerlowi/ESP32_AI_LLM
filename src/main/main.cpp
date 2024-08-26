@@ -9,7 +9,7 @@
 #define I2S_BCLK 26 // BCLK引脚
 #define I2S_LRC 27  // LRC引脚
 
-//  优先事项！！！
+//  优先事项！！！一定要做，不做的话麦克风会因为引脚冲突无法工作
 //  找到.pio\libdeps\upesy_wroom\TFT_eSPI路径下的User_Setup.h文件，删除它，然后将根目录下的User_Setup.h文件剪切粘贴过去
 
 
@@ -975,7 +975,7 @@ void onMessageCallback1(WebsocketsMessage message)
             webSocketClient1.close();
 
             // 如果是调声音大小还有开关灯的指令，就不打断当前的语音
-            if ((askquestion.indexOf("声音") == -1 && askquestion.indexOf("音量") == -1) && !((askquestion.indexOf("开") > -1 || askquestion.indexOf("关") > -1) && askquestion.indexOf("灯") > -1))
+            if ((askquestion.indexOf("声音") == -1 && askquestion.indexOf("音量") == -1) && !((askquestion.indexOf("开") > -1 || askquestion.indexOf("关") > -1) && askquestion.indexOf("灯") > -1) && !(askquestion.indexOf("暂停") > -1 || askquestion.indexOf("恢复") > -1))
             {
                 webSocketClient.close();    //关闭llm服务器，打断上一次提问的回答生成
                 audio2.isplaying = 0;
@@ -1000,7 +1000,7 @@ void onMessageCallback1(WebsocketsMessage message)
                 {
                     await_flag = 0;     //退出待机状态
                     start_con = 1;      //对话开始标识
-                    Answer = "喵~九歌在的，请尽情吩咐小九歌，主人。";
+                    Answer = "喵~我在的，主人。";
                     response();     //屏幕显示Answer以及语音播放
                     conflag = 1;
                     return;
@@ -1039,6 +1039,32 @@ void onMessageCallback1(WebsocketsMessage message)
                 openWeb();
                 displayWrappedText("热点ESP32-Setup已开启，密码为12345678，可在浏览器中打开http://192.168.4.1进行网络和音乐信息配置！", 0, u8g2.getCursorY() + 12, width);
             }
+            else if (audio2.isplaying == 1 && askquestion.indexOf("暂停") > -1)
+            {
+                tft.fillRect(0, 148, 50, 12, TFT_WHITE);     // 清空左下角的“请说话！”提示
+                if(audio2.isRunning())
+                {   
+                    Serial.println("已经暂停！");
+                    audio2.pauseResume();
+                }
+                else
+                {
+                    Serial.println("当前没有音频正在播放！");
+                }
+            }
+            else if (audio2.isplaying == 1 && askquestion.indexOf("恢复") > -1)
+            {
+                tft.fillRect(0, 148, 50, 12, TFT_WHITE);     // 清空左下角的“请说话！”提示
+                if(!audio2.isRunning())
+                {   
+                    Serial.println("已经恢复！");
+                    audio2.pauseResume();
+                }
+                else
+                {
+                    Serial.println("当前没有音频正在暂停！");
+                }
+            }
             else if (askquestion.indexOf("声音") > -1 || askquestion.indexOf("音量") > -1)
             {
                 tft.fillRect(0, 148, 50, 12, TFT_WHITE);     // 清空左下角的“请说话！”提示
@@ -1054,6 +1080,32 @@ void onMessageCallback1(WebsocketsMessage message)
             {
                 tft.fillRect(0, 148, 50, 12, TFT_WHITE);     // 清空左下角的“请说话！”提示
                 digitalWrite(light, LOW);
+                conflag = 1;
+            }
+            else if (askquestion.indexOf("换") > -1 && askquestion.indexOf("模型") > -1)
+            {
+                String numberStr = extractNumber(askquestion);
+                if (numberStr.length() > 0)
+                {
+                    llm = numberStr.toInt() - 1;
+                    Answer = "喵~已为你切换为第"+ numberStr + "个模型";
+                }
+                if (askquestion.indexOf("字节") > -1 || askquestion.indexOf("豆包") > -1)
+                {
+                    llm = 0;
+                    Answer = "喵~已为你切换为豆包大模型";
+                }
+                if (askquestion.indexOf("讯飞") > -1 || askquestion.indexOf("星火") > -1)
+                {
+                    llm = 1;
+                    Answer = "喵~已为你切换为星火大模型";
+                }
+                if (askquestion.indexOf("阿里") > -1 || askquestion.indexOf("通义") > -1 || askquestion.indexOf("千问") > -1)
+                {
+                    llm = 2;
+                    Answer = "喵~已为你切换为通义千问大模型";
+                }     
+                response();     //屏幕显示Answer以及语音播放
                 conflag = 1;
             }
             else if (conStatus == 1)
