@@ -50,6 +50,8 @@ String dufs = "";              // 类似“http://192.168.5.6:5000/”
 String roleSet = "你是一个二次元魔法猫娘，你的名字叫小灵，你的性格可爱活泼，说话简短，同时带有攻击嘲讽意味，你喜欢在回答的末尾加一个“喵”字。";
 String roleSet1 = "你是一个二次元魔法猫娘，你的名字叫小灵，你的性格可爱活泼，说话简短，同时带有攻击嘲讽意味，你喜欢在回答的末尾加一个“喵”字。";
 
+/*----------------------只需修改上面的内容，下面的一般不需要----------------------------*/
+
 // 定义一些全局变量
 bool ledstatus = true;          // 控制led闪烁
 bool startPlay = false;
@@ -1340,8 +1342,26 @@ void onMessageCallback1(WebsocketsMessage message)
             else if (askquestion.indexOf("换") > -1 && askquestion.indexOf("模型") > -1)
             {
                 String numberStr = extractNumber(askquestion);
-                llm = numberStr.toInt() - 1;
-                Answer = "喵~已为你切换为第"+ numberStr + "个模型";
+                if (numberStr.length() > 0)
+                {
+                    llm = numberStr.toInt() - 1;
+                    Answer = "喵~已为你切换为第"+ numberStr + "个模型";
+                }
+                if (askquestion.indexOf("字节") > -1 || askquestion.indexOf("豆包") > -1)
+                {
+                    llm = 0;
+                    Answer = "喵~已为你切换为豆包大模型";
+                }
+                if (askquestion.indexOf("讯飞") > -1 || askquestion.indexOf("星火") > -1)
+                {
+                    llm = 1;
+                    Answer = "喵~已为你切换为星火大模型";
+                }
+                if (askquestion.indexOf("阿里") > -1 || askquestion.indexOf("通义") > -1 || askquestion.indexOf("千问") > -1)
+                {
+                    llm = 2;
+                    Answer = "喵~已为你切换为通义千问大模型";
+                }     
                 response();     //屏幕显示Answer以及语音播放
                 conflag = 1;
             }
