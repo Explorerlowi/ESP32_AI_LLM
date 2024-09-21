@@ -20,7 +20,7 @@
 
 
 
-int llm = 1;    // 大模型选择参数:0:豆包，1：讯飞星火，2：通义千问
+int llm = 1;    // 大模型选择参数:0:豆包，1：讯飞星火，2：通义千问，3：Chatgpt
 
 // 选哪个模型，就填哪个模型的参数
 // 豆包大模型的参数
@@ -32,6 +32,11 @@ String apiUrl = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
 String model2 = "";
 const char* tongyi_apiKey = "";
 String apiUrl_tongyi = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"; // 通义千问的API地址
+
+// Chatgpt的参数
+String model3 = "";
+const char* openai_apiKey = "";
+String apiUrl_chatgpt = "https://aihubmix.com/v1/chat/completions"; // Chatgpt的API代理地址
 
 // 讯飞stt和大模型服务的参数
 String APPID = "";                             // App ID,必填
@@ -129,6 +134,7 @@ void getTimeFromServer();
 String getUrl(String server, String host, String path, String date);
 void doubao();
 void tongyi();
+void chatgpt();
 
 void voicePlay()
 {
@@ -1577,6 +1583,9 @@ void onMessageCallback1(WebsocketsMessage message)
                         case 2:
                             tongyi();       // 通义千问
                             break;
+                        case 3:
+                            chatgpt();       // chatgpt
+                            break;
                         default:
                             ConnServer();   // 讯飞星火
                             break;
@@ -1719,6 +1728,9 @@ void onMessageCallback1(WebsocketsMessage message)
                         break;
                     case 2:
                         tongyi();       // 通义千问
+                        break;
+                    case 3:
+                        chatgpt();       // chatgpt
                         break;
                     default:
                         ConnServer();   // 讯飞星火
@@ -2369,3 +2381,95 @@ void tongyi()
         return;
     }
 }
+
+// 问题发送给Chatgpt并接受回答，然后转成语音
+void chatgpt()
+{
+    HTTPClient http;
+    http.setTimeout(20000);     // 设置请求超时时间
+    http.begin(apiUrl_chatgpt);
+    http.addHeader("Content-Type", "application/json");
+    String token_key = String("Bearer ") + openai_apiKey;
+    http.addHeader("Authorization", token_key);
+
+    // 向串口输出提示信息
+    Serial.println("Send message to chatgpt!");
+
+    // 生成连接参数的JSON文档
+    DynamicJsonDocument jsonData = gen_params_http(model3.c_str(), roleSet1.c_str());
+
+    // 将JSON文档序列化为字符串
+    String jsonString;
+    serializeJson(jsonData, jsonString);
+
+    // 向串口输出生成的JSON字符串
+    Serial.println(jsonString);
+    int httpResponseCode = http.POST(jsonString);
+
+    if (httpResponseCode == 200) {
+        // 在 stream（流式调用） 模式下，基于 SSE (Server-Sent Events) 协议返回生成内容，每次返回结果为生成的部分内容片段
+        WiFiClient* stream = http.getStreamPtr();   // 返回一个指向HTTP响应流的指针，通过它可以读取服务器返回的数据
+
+        while (stream->connected()) {   // 这个循环会一直运行，直到客户端（即stream）断开连接。
+            String line = stream->readStringUntil('\n');    // 从流中读取一行字符串，直到遇到换行符\n为止
+            // 检查读取的行是否以data:开头。
+            // 在SSE（Server-Sent Events）协议中，服务器发送的数据行通常以data:开头，这样客户端可以识别出这是实际的数据内容。
+            if (line.startsWith("data:")) {
+                // 如果行以data:开头，提取出data:后面的部分，并去掉首尾的空白字符。
+                String data = line.substring(5);
+                data.trim();
+                // 输出读取的数据
+                //Serial.print("data: ");
+                //Serial.println(data);
+
+                int status = 0;
+                StaticJsonDocument<400> jsonResponse;
+                // 解析收到的数据
+                DeserializationError error = deserializeJson(jsonResponse, data);
+
+                // 如果解析没有错误
+                if (!error)
+                {
+                    if (jsonResponse["choices"][0]["finish_reason"] == "stop")
+                    {
+                        status = 2;
+                        Serial.println("status: 2");
+                    }
+                    else
+                    {
+                        const char *content = jsonResponse["choices"][0]["delta"]["content"];
+                        const char *removeSet = "\n*$"; // 定义需要移除的符号集
+                        // 计算新字符串的最大长度
+                        int length = strlen(content) + 1;
+                        char *cleanedContent = new char[length];
+                        removeChars(content, cleanedContent, removeSet);
+                        Serial.println(cleanedContent);
+
+                        // 将内容追加到Answer字符串中
+                        Answer += cleanedContent;
+                        content = "";
+                        // 释放分配的内存
+                        delete[] cleanedContent;
+                    }
+
+                    processResponse(status);
+
+                    if (status == 2)
+                    {
+                        stream->stop();
+                        break;
+                    }
+                }
+            }
+        }
+        return;
+    } 
+    else 
+    {
+        Serial.printf("Error %i \n", httpResponseCode);
+        Serial.println(http.getString());
+        http.end();
+        return;
+    }
+}
+
