@@ -114,6 +114,7 @@ void getTimeFromServer();
 String getUrl(String server, String host, String path, String date);
 void doubao();
 void tongyi();
+void chatgpt();
 
 void voicePlay()
 {
