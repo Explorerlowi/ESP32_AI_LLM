@@ -26,3 +26,10 @@ led灯：
 
 正极 -> GPIO38
 负极 -> GND
+asrpro:
+
+5V -> V5IN
+GND -> GND
+PB5 -> RX2(GPIO19)
+PB6 -> TX2(GPIO20)
+PA2 -> GPIO3
