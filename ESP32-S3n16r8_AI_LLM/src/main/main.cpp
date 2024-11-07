@@ -14,7 +14,8 @@
 
 
 
-int llm = 0;    // 大模型选择参数:0:豆包，1：讯飞星火，2：通义千问
+int llm = 0;    // 大模型选择参数:0:豆包，1：讯飞星火，2：通义千问，3：通义千问智能体应用，4：Chatgpt（经常会请求失败），5：Dify（用官网提供的免费的API服务也经常会请求失败）
+String llm_name[] = {"豆包大模型", "讯飞星火大模型", "通义千问大模型", "通义千问智能体应用", "Chatgpt大模型", "Dify"};
 
 // 选哪个模型，就填哪个模型的参数
 // 豆包大模型的参数
@@ -27,19 +28,27 @@ String model2 = "";
 const char* tongyi_apiKey = "";
 String apiUrl_tongyi = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"; // 通义千问的API地址
 
+// 通义千问智能体应用的参数
+String tongyi_appid = "";
+String apiUrl_tongyi_app = "https://dashscope.aliyuncs.com/api/v1/apps/" + tongyi_appid + "/completion"; // 通义千问智能体应用的API地址
+
 // Chatgpt的参数
-String model3 = "";
+String model3 = "gpt-4o-mini";
 const char* openai_apiKey = "";
-String apiUrl_chatgpt = "https://aihubmix.com/v1/chat/completions"; // Chatgpt的API代理地址
+String apiUrl_chatgpt = "https://api.oaipro.com/v1/chat/completions"; // Chatgpt的API代理地址
+
+// Dify参数
+const String dify_apiKey = "";
+String apiUrl_dify = "https://api.dify.ai/v1/chat-messages"; // Dify的API代理地址
 
 // 讯飞stt和大模型服务的参数
 String APPID = "";                             // App ID,必填
 String APISecret = ""; // API Secret，必填
 String APIKey = "";    // API Key，必填
 String appId1 = APPID;
-String domain1 = "4.0Ultra";    // 根据需要更改
-String websockets_server = "ws://spark-api.xf-yun.com/v4.0/chat";   // 根据需要更改
-String websockets_server1 = "ws://iat-api.xfyun.cn/v2/iat";
+String domain1 = "4.0Ultra";    // 根据需要更改4.0Ultra、max-32k、generalv3.5、pro-128k、generalv3、lite
+String websockets_server = "ws://spark-api.xf-yun.com/v4.0/chat";   // 根据需要更改/v4.0/chat、/chat/max-32k、/v3.5/chat、/chat/pro-128k、/v3.1/chat、/v1.1/chat
+String websockets_server1 = "ws://iat-api.xfyun.cn/v2/iat";         // 不需要更改
 // 讯飞stt语种设置
 String language = "zh_cn";     //zh_cn：中文（支持简单的英文识别）en_us：English
 
@@ -84,6 +93,8 @@ int conflag = 0;        //用于连续对话
 int await_flag = 1;     //待机标识
 int start_con = 0;      //标识是否开启了一轮对话
 int image_show = 0;
+String conversation_id = "";
+String session_id = "";
 
 using namespace websockets; // 使用WebSocket命名空间
 // 创建WebSocket客户端对象
@@ -100,6 +111,8 @@ Audio2 audio2(false, 3, I2S_NUM_1);
 // 函数声明
 DynamicJsonDocument gen_params(const char *appid, const char *domain);
 DynamicJsonDocument gen_params_http(const char *model, const char *role_set);
+DynamicJsonDocument gen_params_dify();
+DynamicJsonDocument gen_params_tongyi_app();
 void processResponse(int status);
 void displayWrappedText(const string &text1, int x, int y, int maxWidth);
 void getText(String role, String content);
@@ -114,7 +127,9 @@ void getTimeFromServer();
 String getUrl(String server, String host, String path, String date);
 void doubao();
 void tongyi();
+void tongyi_app();
 void chatgpt();
+void dify();
 
 void voicePlay()
 {
@@ -254,6 +269,8 @@ void setup()
     // 将light初始化为低电平
     digitalWrite(light, LOW);
 
+    Serial.println("引脚初始化完成！");
+
     // 初始化屏幕
     tft.init();
     tft.setRotation(0);        // 设置屏幕方向，0-3顺时针转
@@ -271,6 +288,8 @@ void setup()
     u8g2.setCursor(0, 11);
     u8g2.print("已开机！");
 
+    Serial.println("屏幕初始化完成！");
+
     // 初始化音频模块audio1
     audio1.init();
     // 设置音频输出引脚和音量
@@ -285,14 +304,15 @@ void setup()
     u8g2.print("正在连接网络······");
     int result = wifiConnect();
 
-    // 从百度服务器获取当前时间
-    getTimeFromServer();
-    // 使用当前时间生成WebSocket连接的URL
-    url = getUrl(websockets_server, "spark-api.xf-yun.com", websockets_server.substring(25), Date);
-    url1 = getUrl(websockets_server1, "iat-api.xfyun.cn", "/v2/iat", Date);
-
     if (result == 1)
     {
+        Serial.println("音频模块初始化完成！网络连接成功！");
+        // 从百度服务器获取当前时间
+        getTimeFromServer();
+        // 使用当前时间生成WebSocket连接的URL
+        url = getUrl(websockets_server, "spark-api.xf-yun.com", websockets_server.substring(25), Date);
+        url1 = getUrl(websockets_server1, "iat-api.xfyun.cn", "/v2/iat", Date);
+
         // 清空屏幕，在屏幕上输出提示信息
         tft.fillScreen(TFT_WHITE);
         u8g2.setCursor(0, 11);
@@ -430,8 +450,8 @@ void getText(String role, String content)
     // 设置JSON文档中的角色和内容
     jsoncon["role"] = role;
     jsoncon["content"] = content;
-    Serial.print("jsoncon：");
-    Serial.println(jsoncon.as<String>());
+    // Serial.print("jsoncon：");
+    // Serial.println(jsoncon.as<String>());
 
     // 将JSON文档序列化为字符串
     String jsonString;
@@ -441,6 +461,7 @@ void getText(String role, String content)
     text.push_back(jsonString);
 
     // 输出vector中的内容
+    Serial.println("对话上下文（Conversation context）：");
     for (const auto& jsonStr : text) {
         Serial.println(jsonStr);
     }
@@ -490,7 +511,7 @@ void checkLen()
     for (const auto& jsonStr : text) {
         totalBytes += jsonStr.length();
     }
-    Serial.print("text size:");
+    Serial.print("当前上下文占用字节数（text size）: ");
     Serial.println(totalBytes);
     // 当vector中的字符串总长度超过800字节时，删除最开始的一对对话
     if (totalBytes > 800)
@@ -588,6 +609,37 @@ DynamicJsonDocument gen_params_http(const char *model, const char *role_set)
             Serial.println(error.c_str());
         }
     }
+    // 返回构建好的JSON文档
+    return data;
+}
+
+DynamicJsonDocument gen_params_dify()
+{
+    // 创建一个容量为1500字节的动态JSON文档
+    DynamicJsonDocument data(500);
+
+    JsonObject inputsObj = data.createNestedObject("inputs"); // 创建空对象
+    data["query"] = askquestion.c_str();
+    data["response_mode"] = "streaming";
+    data["conversation_id"] = conversation_id.c_str();
+    data["user"] = "abc-123456";
+
+    // 返回构建好的JSON文档
+    return data;
+}
+
+DynamicJsonDocument gen_params_tongyi_app()
+{
+    // 创建一个容量为1500字节的动态JSON文档
+    DynamicJsonDocument data(500);
+
+    JsonObject inputObj = data.createNestedObject("input"); // 创建空对象
+    inputObj["prompt"] = askquestion.c_str();
+    inputObj["session_id"] = session_id.c_str();
+    JsonObject parametersObj = data.createNestedObject("parameters"); // 创建空对象
+    parametersObj["incremental_output"] = true;
+    JsonObject debugObj = data.createNestedObject("debug"); // 创建空对象
+
     // 返回构建好的JSON文档
     return data;
 }
@@ -1132,8 +1184,15 @@ void onMessageCallback1(WebsocketsMessage message)
                 String numberStr = extractNumber(askquestion);
                 if (numberStr.length() > 0)
                 {
-                    llm = numberStr.toInt() - 1;
-                    Answer = "喵~已为你切换为第"+ numberStr + "个模型";
+                    if (numberStr.toInt() > llm_name->length())
+                    {
+                        Answer = "喵~当前只有" + String(llm_name->length()) + "个大模型，没有这个大模型哦";
+                    }
+                    else
+                    {
+                        llm = numberStr.toInt() - 1;
+                        Answer = "喵~已为你切换为第"+ numberStr + "个模型（" + llm_name[llm] + "）";
+                    }
                 }
                 if (askquestion.indexOf("字节") > -1 || askquestion.indexOf("豆包") > -1)
                 {
@@ -1147,14 +1206,27 @@ void onMessageCallback1(WebsocketsMessage message)
                 }
                 if (askquestion.indexOf("阿里") > -1 || askquestion.indexOf("通义") > -1 || askquestion.indexOf("千问") > -1)
                 {
-                    llm = 2;
-                    Answer = "喵~已为你切换为通义千问大模型";
+                    if (askquestion.indexOf("智能体") > -1 || askquestion.indexOf("应用") > -1)
+                    {
+                        llm = 3;
+                        Answer = "喵~已为你切换为通义千问智能体应用";
+                    }
+                    else
+                    {
+                        llm = 2;
+                        Answer = "喵~已为你切换为通义千问大模型";
+                    }
                 } 
                 if (askquestion.indexOf("Chat") > -1 || askquestion.indexOf("Gpt") > -1 || askquestion.indexOf("chat") > -1 || askquestion.indexOf("gpt") > -1)
                 {
-                    llm = 3;
+                    llm = 4;
                     Answer = "喵~已为你切换为Chatgpt大模型";
-                }         
+                }
+                if (askquestion.indexOf("Dify") > -1 || askquestion.indexOf("dify") > -1)
+                {
+                    llm = 5;
+                    Answer = "喵~已为你切换为Dify";
+                }   
                 response();     //屏幕显示Answer以及语音播放
                 conflag = 1;
             }
@@ -1368,7 +1440,13 @@ void onMessageCallback1(WebsocketsMessage message)
                             tongyi();       // 通义千问
                             break;
                         case 3:
-                            chatgpt();       // chatgpt
+                            tongyi_app();   // 通义千问智能体应用
+                            break;
+                        case 4:
+                            chatgpt();      // chatgpt
+                            break;
+                        case 5:
+                            dify();         //  Dify
                             break;
                         default:
                             ConnServer();   // 讯飞星火
@@ -1523,8 +1601,14 @@ void onMessageCallback1(WebsocketsMessage message)
                         tongyi();       // 通义千问
                         break;
                     case 3:
-                        chatgpt();       // chatgpt
+                        tongyi_app();   // 通义千问智能体应用
                         break;
+                    case 4:
+                        chatgpt();      // chatgpt
+                        break;
+                    case 5:
+                        dify();         //  Dify
+                        break;  
                     default:
                         ConnServer();   // 讯飞星火
                         break;
@@ -1573,7 +1657,7 @@ void onEventsCallback1(WebsocketsEvent event, String data)
         }
         conflag = 0;
 
-        Serial.println("开始录音");
+        Serial.println("开始录音 Start recording......");
         // 无限循环，用于录制和发送音频数据
         while (1)
         {
@@ -1600,7 +1684,7 @@ void onEventsCallback1(WebsocketsEvent event, String data)
             {
                 rms = 8.6;
             }
-            printf("%d %f\n", 0, rms);
+            printf("RMS: %f\n", rms);
 
             if(null_voice >= 80)    // 如果从录音开始过了8秒才说话，讯飞stt识别会超时，所以直接结束本次录音，重新开始录音
             {
@@ -1616,7 +1700,7 @@ void onEventsCallback1(WebsocketsEvent event, String data)
                 awake_flag = 0;
                 // 录音超时，断开本次连接
                 webSocketClient1.close();
-                Serial.println("录音结束");
+                Serial.println("录音结束 End of recording.");
                 return;
             }
 
@@ -1658,7 +1742,7 @@ void onEventsCallback1(WebsocketsEvent event, String data)
 
                 webSocketClient1.send(jsonString);
                 delay(40);
-                Serial.println("录音结束");
+                Serial.println("录音结束 End of recording.");
                 break;
             }
 
@@ -1732,45 +1816,43 @@ void onEventsCallback1(WebsocketsEvent event, String data)
 /*---------基本不需要再改的函数---------*/
 void ConnServer()
 {
-    // 向串口输出WebSocket服务器的URL
-    Serial.println("url:" + url);
-
-    // 设置WebSocket客户端的消息回调函数
-    webSocketClient.onMessage(onMessageCallback);
-
-    // 设置WebSocket客户端的事件回调函数
-    webSocketClient.onEvent(onEventsCallback);
+    // Serial.println("url:" + url);                    // 向串口输出WebSocket服务器的URL
+    
+    webSocketClient.onMessage(onMessageCallback);       // 设置WebSocket客户端的消息回调函数
+    webSocketClient.onEvent(onEventsCallback);          // 设置WebSocket客户端的事件回调函数
 
     // 开始连接WebSocket服务器
-    Serial.println("Begin connect to server0......");
+    Serial.println("开始连接讯飞星火大模型服务......Begin connect to server0(Xunfei Spark LLM)......");
 
     // 尝试连接到WebSocket服务器
     if (webSocketClient.connect(url.c_str()))
     {
         // 如果连接成功，输出成功信息
-        Serial.println("Connected to server0!");
+        Serial.println("连接LLM成功！Connected to server0(Xunfei Spark LLM)!");
     }
     else
     {
         // 如果连接失败，输出失败信息
-        Serial.println("Failed to connect to server0!");
+        Serial.println("连接LLM失败！Failed to connect to server0(Xunfei Spark LLM)!");
     }
 }
 
 void ConnServer1()
 {
     // Serial.println("url1:" + url1);
+
     webSocketClient1.onMessage(onMessageCallback1);
     webSocketClient1.onEvent(onEventsCallback1);
+
     // Connect to WebSocket
-    Serial.println("Begin connect to server1......");
+    Serial.println("开始连接讯飞STT语音转文字服务......Begin connect to server1(Xunfei STT)......");
     if (webSocketClient1.connect(url1.c_str()))
     {
-        Serial.println("Connected to server1!");
+        Serial.println("连接成功！Connected to server1(Xunfei STT)!");
     }
     else
     {
-        Serial.println("Failed to connect to server1!");
+        Serial.println("连接失败！Failed to connect to server1(Xunfei STT)!");
     }
 }
 
@@ -1952,7 +2034,7 @@ float calculateRMS(uint8_t *buffer, int bufferSize)
     return sqrt(sum);
 }
 
-// 移除讯飞星火回复中没用的符号
+// 移除LLM回复中在屏幕上进行显示时没用的符号
 void removeChars(const char *input, char *output, const char *removeSet)
 {
     int j = 0;
@@ -2000,6 +2082,8 @@ void doubao()
     int httpResponseCode = http.POST(jsonString);
 
     if (httpResponseCode == 200) {
+        Serial.print("httpResponseCode: ");
+        Serial.println(httpResponseCode);
         // 在 stream（流式调用） 模式下，基于 SSE (Server-Sent Events) 协议返回生成内容，每次返回结果为生成的部分内容片段
         WiFiClient* stream = http.getStreamPtr();   // 返回一个指向HTTP响应流的指针，通过它可以读取服务器返回的数据
 
@@ -2052,6 +2136,10 @@ void doubao()
                         stream->stop();
                         break;
                     }
+                }
+                else {
+                    Serial.print("解析错误（Parsing Error）: ");
+                    Serial.println(error.c_str());
                 }
             }
         }
@@ -2120,6 +2208,8 @@ void tongyi()
     int httpResponseCode = http.POST(jsonString);
 
     if (httpResponseCode == 200) {
+        Serial.print("httpResponseCode: ");
+        Serial.println(httpResponseCode);
         // 在 stream（流式调用） 模式下，基于 SSE (Server-Sent Events) 协议返回生成内容，每次返回结果为生成的部分内容片段
         WiFiClient* stream = http.getStreamPtr();   // 返回一个指向HTTP响应流的指针，通过它可以读取服务器返回的数据
 
@@ -2171,6 +2261,115 @@ void tongyi()
                         break;
                     }
                 }
+                else {
+                    Serial.print("解析错误（Parsing Error）: ");
+                    Serial.println(error.c_str());
+                }
+            }
+        }
+        return;
+    } 
+    else 
+    {
+        Serial.printf("Error %i \n", httpResponseCode);
+        Serial.println(http.getString());
+        http.end();
+        return;
+    }
+}
+
+// 问题发送给Dify并接受回答，然后转成语音
+void tongyi_app()
+{
+    HTTPClient http;
+    http.setTimeout(20000);     // 设置请求超时时间
+    http.begin(apiUrl_tongyi_app);
+    String token_key = String("Bearer ") + tongyi_apiKey;
+    http.addHeader("Authorization", token_key);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("X-DashScope-SSE", "enable");
+
+    // 向串口输出提示信息
+    Serial.println("Send message to Tongyi_app!");
+
+    // 生成连接参数的JSON文档
+    DynamicJsonDocument jsonData = gen_params_tongyi_app();
+
+    // 将JSON文档序列化为字符串
+    String jsonString;
+    serializeJson(jsonData, jsonString);
+
+    // 向串口输出生成的JSON字符串
+    Serial.println(jsonString);
+    int httpResponseCode = http.POST(jsonString);
+
+    if (httpResponseCode == 200) {
+        Serial.print("httpResponseCode: ");
+        Serial.println(httpResponseCode);
+        // 在 stream（流式调用） 模式下，基于 SSE (Server-Sent Events) 协议返回生成内容，每次返回结果为生成的部分内容片段
+        WiFiClient* stream = http.getStreamPtr();   // 返回一个指向HTTP响应流的指针，通过它可以读取服务器返回的数据
+
+        while (stream->connected()) {   // 这个循环会一直运行，直到客户端（即stream）断开连接。
+            String line = stream->readStringUntil('\n');    // 从流中读取一行字符串，直到遇到换行符\n为止
+            // 检查读取的行是否以data:开头。
+            // 在SSE（Server-Sent Events）协议中，服务器发送的数据行通常以data:开头，这样客户端可以识别出这是实际的数据内容。
+            if (line.startsWith("data:")) {
+                // 如果行以data:开头，提取出data:后面的部分，并去掉首尾的空白字符。
+                String data = line.substring(5);
+                data.trim();
+                // 输出读取的数据
+                // Serial.print("data: ");
+                // Serial.println(data);
+
+                int status = 0;
+                StaticJsonDocument<1024> jsonResponse;
+                // 解析收到的数据
+                DeserializationError error = deserializeJson(jsonResponse, data);
+
+                // 如果解析没有错误
+                if (!error)
+                {
+                    if (jsonResponse.containsKey("output"))
+                    {
+                        if (jsonResponse["output"]["finish_reason"] != "stop")
+                        {
+                            const char *content = jsonResponse["output"]["text"];
+                            const char *removeSet = "\n*$"; // 定义需要移除的符号集
+                            // 计算新字符串的最大长度
+                            int length = strlen(content) + 1;
+                            char *cleanedContent = new char[length];
+                            removeChars(content, cleanedContent, removeSet);
+                            Serial.println(cleanedContent);
+
+                            // 将内容追加到Answer字符串中
+                            Answer += cleanedContent;
+                            content = "";
+                            // 释放分配的内存
+                            delete[] cleanedContent;
+                        }
+                        else
+                        {
+                            session_id = "";
+                            const char *content = jsonResponse["output"]["session_id"];
+                            session_id += content;
+                            content = "";
+                            status = 2;
+                            Serial.println("status: 2");
+                        }
+                    }
+
+                    processResponse(status);
+
+                    if (status == 2)
+                    {
+                        stream->stop();
+                        break;
+                    }
+                }
+                else {
+                    Serial.print("解析错误（Parsing Error）: ");
+                    Serial.println(error.c_str());
+                }
             }
         }
         return;
@@ -2209,6 +2408,8 @@ void chatgpt()
     int httpResponseCode = http.POST(jsonString);
 
     if (httpResponseCode == 200) {
+        Serial.print("httpResponseCode: ");
+        Serial.println(httpResponseCode);
         // 在 stream（流式调用） 模式下，基于 SSE (Server-Sent Events) 协议返回生成内容，每次返回结果为生成的部分内容片段
         WiFiClient* stream = http.getStreamPtr();   // 返回一个指向HTTP响应流的指针，通过它可以读取服务器返回的数据
 
@@ -2225,7 +2426,7 @@ void chatgpt()
                 //Serial.println(data);
 
                 int status = 0;
-                StaticJsonDocument<400> jsonResponse;
+                StaticJsonDocument<1024> jsonResponse;
                 // 解析收到的数据
                 DeserializationError error = deserializeJson(jsonResponse, data);
 
@@ -2262,6 +2463,10 @@ void chatgpt()
                         break;
                     }
                 }
+                else {
+                    Serial.print("解析错误（Parsing Error）: ");
+                    Serial.println(error.c_str());
+                }
             }
         }
         return;
@@ -2275,3 +2480,105 @@ void chatgpt()
     }
 }
 
+// 问题发送给Dify并接受回答，然后转成语音
+void dify()
+{
+    HTTPClient http;
+    http.setTimeout(20000);     // 设置请求超时时间
+    http.begin(apiUrl_dify);
+    http.addHeader("Authorization", "Bearer " + dify_apiKey);
+    http.addHeader("Content-Type", "application/json");
+
+    // 向串口输出提示信息
+    Serial.println("Send message to Dify!");
+
+    // 生成连接参数的JSON文档
+    DynamicJsonDocument jsonData = gen_params_dify();
+
+    // 将JSON文档序列化为字符串
+    String jsonString;
+    serializeJson(jsonData, jsonString);
+
+    // 向串口输出生成的JSON字符串
+    Serial.println(jsonString);
+    int httpResponseCode = http.POST(jsonString);
+
+    if (httpResponseCode == 200) {
+        Serial.print("httpResponseCode: ");
+        Serial.println(httpResponseCode);
+        // 在 stream（流式调用） 模式下，基于 SSE (Server-Sent Events) 协议返回生成内容，每次返回结果为生成的部分内容片段
+        WiFiClient* stream = http.getStreamPtr();   // 返回一个指向HTTP响应流的指针，通过它可以读取服务器返回的数据
+
+        while (stream->connected()) {   // 这个循环会一直运行，直到客户端（即stream）断开连接。
+            String line = stream->readStringUntil('\n');    // 从流中读取一行字符串，直到遇到换行符\n为止
+            // 检查读取的行是否以data:开头。
+            // 在SSE（Server-Sent Events）协议中，服务器发送的数据行通常以data:开头，这样客户端可以识别出这是实际的数据内容。
+            if (line.startsWith("data:")) {
+                // 如果行以data:开头，提取出data:后面的部分，并去掉首尾的空白字符。
+                String data = line.substring(5);
+                data.trim();
+                // 输出读取的数据
+                // Serial.print("data: ");
+                // Serial.println(data);
+
+                int status = 0;
+                StaticJsonDocument<1024> jsonResponse;
+                // 解析收到的数据
+                DeserializationError error = deserializeJson(jsonResponse, data);
+
+                // 如果解析没有错误
+                if (!error)
+                {
+                    if (jsonResponse.containsKey("answer"))
+                    {
+                        if (jsonResponse["answer"] != "")
+                        {
+                            const char *content = jsonResponse["answer"];
+                            const char *removeSet = "\n*$"; // 定义需要移除的符号集
+                            // 计算新字符串的最大长度
+                            int length = strlen(content) + 1;
+                            char *cleanedContent = new char[length];
+                            removeChars(content, cleanedContent, removeSet);
+                            Serial.println(cleanedContent);
+
+                            // 将内容追加到Answer字符串中
+                            Answer += cleanedContent;
+                            content = "";
+                            // 释放分配的内存
+                            delete[] cleanedContent;
+                        }
+                        else
+                        {
+                            conversation_id = "";
+                            const char *content = jsonResponse["conversation_id"];
+                            conversation_id += content;
+                            content = "";
+                            status = 2;
+                            Serial.println("status: 2");
+                        }
+                    }
+
+                    processResponse(status);
+
+                    if (status == 2)
+                    {
+                        stream->stop();
+                        break;
+                    }
+                }
+                else {
+                    Serial.print("解析错误（Parsing Error）: ");
+                    Serial.println(error.c_str());
+                }
+            }
+        }
+        return;
+    } 
+    else 
+    {
+        Serial.printf("Error %i \n", httpResponseCode);
+        Serial.println(http.getString());
+        http.end();
+        return;
+    }
+}

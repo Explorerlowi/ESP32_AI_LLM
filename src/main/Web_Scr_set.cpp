@@ -15,7 +15,7 @@ void openWeb()
 {
     // 网络连接失败，启动 AP 模式创建热点用于配网和音乐信息添加
     WiFi.softAP(ap_ssid, ap_password);
-    Serial.println("Started Access Point");
+    Serial.println("网络连接失败，启动AP模式。Network connection failed, Started Access Point.");
     // 启动 Web 服务器
     server.on("/", HTTP_GET, handleRoot);
     server.on("/wifi", HTTP_GET, handleWifiManagement);
