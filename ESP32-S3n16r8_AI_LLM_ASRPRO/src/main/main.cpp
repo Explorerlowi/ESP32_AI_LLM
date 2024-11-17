@@ -18,8 +18,9 @@ CRGB leds[NUM_LEDS];
 
 
 //  优先事项！！！一定要做，不做的话麦克风会因为引脚冲突无法工作
-//  找到.pio\libdeps\upesy_wroom\TFT_eSPI路径下的User_Setup.h文件，删除它，然后将根目录下的User_Setup.h文件剪切粘贴过去
-
+//  在vscode中打开文件夹，等待依赖库下载完成后,
+//  找到.pio\libdeps\esp32-s3-devkitm-1\TFT_eSPI路径下的User_Setup.h文件，删除它，然后将根目录下的User_Setup.h文件剪切粘贴过去
+//  然后再把根目录下的FastLED文件夹剪切粘贴到.pio\libdeps\esp32-s3-devkitm-1中即可
 
 
 
