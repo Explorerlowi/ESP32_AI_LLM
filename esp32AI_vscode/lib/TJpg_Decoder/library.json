@@ -1,0 +1,23 @@
+{
+  "name": "TJpg_Decoder",
+
+  "version": "1.0.5",
+
+  "keywords": "jpeg, jpg, tft, display, RP2040, STM32, ESP8266, ESP32",
+  "description": "A JPEG decoder library based on Tiny JPEG Decompressor",
+  "repository":
+  {
+    "type": "git",
+    "url": "https://github.com/Bodmer/TJpg_Decoder"
+  },
+  "authors":
+  [
+    {
+        "name": "Bodmer",
+        "email": "bodmer@anola.net",
+        "maintainer": true
+    }
+  ],
+  "frameworks": "arduino",
+  "platforms": "*"
+}
