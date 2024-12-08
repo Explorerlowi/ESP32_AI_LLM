@@ -66,9 +66,9 @@ https://serial.keysking.com
 |---------|-----------|--------------|
 | VDD     | 3.3V      | 3.3V         |
 | GND     | GND       | GND          |
-| SD      | GPIO22    | GPIO14       |
-| WS      | GPIO15    | GPIO2        |
-| SCK     | GPIO4     | GPIO1        |
+| SD      | GPIO22    | GPIO42       |
+| WS      | GPIO15    | GPIO1        |
+| SCK     | GPIO4     | GPIO2        |
 
 #### 2. MAX98357音频放大模块
 | 模块引脚 | ESP32连接 | ESP32-S3连接 |
